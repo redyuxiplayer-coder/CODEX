@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>操作日志</h1>
+  <table>
+    <thead>
+      <tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>详情</th></tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ log.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>{{ log.actor.display_name if log.actor else "" }}</td>
+        <td>{{ log.action }}</td>
+        <td>{{ log.target }}</td>
+        <td>{{ log.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

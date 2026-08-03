@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>每日发货统计</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="mobile">
+<main class="phone-card wide-phone">
+  <div class="mobile-nav">
+    <b>{{ user.display_name }}</b>
+    <a href="/mobile">主页</a>
+    <a href="/mobile/report">发货上报</a>
+    <a href="/mobile/orders">补货查看</a>
+    <a href="/logout">退出</a>
+  </div>
+
+  <section class="mobile-hero">
+    <div>
+      <h1>每日发货统计</h1>
+      <p>{{ ship_date }} · 已通过发货 {{ total }} 件</p>
+    </div>
+  </section>
+
+  <section class="panel mobile-section">
+    <form method="get" class="grid-form">
+      <input type="date" name="ship_date" value="{{ ship_date }}">
+      <button>查询</button>
+    </form>
+  </section>
+
+  <section class="mobile-section">
+    {% if rows %}
+      <div class="mobile-list">
+      {% for row in rows %}
+        <article class="balance-item done-card">
+          <div class="item-title">{{ row.company }} · {{ row.product }}</div>
+          <div class="item-sub">{{ row.style }}</div>
+          <div class="numbers">
+            <span>{{ row.size }} <b>{{ row.quantity }}</b></span>
+          </div>
+        </article>
+      {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">这一天还没有已通过的发货记录。</p>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>

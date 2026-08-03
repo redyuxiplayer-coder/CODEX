@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel narrow">
+  <h1>今日目标</h1>
+  <form method="get" class="toolbar">
+    <input type="date" name="goal_date" value="{{ goal_date }}" required>
+    <button>查看日期</button>
+  </form>
+  <form method="post" class="grid-form">
+    <input type="hidden" name="goal_date" value="{{ goal_date }}">
+    <label>当日优先完成目标</label>
+    <textarea name="goal_text" rows="10" placeholder="一行一个目标，例如：&#10;优先完成福建小偷女款&#10;源兴发小红帽先补 M/L&#10;张鹏囚服今天清点">{{ goal_text }}</textarea>
+    <button>保存今日目标</button>
+  </form>
+</section>
+{% endblock %}

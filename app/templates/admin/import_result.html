@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>导入结果</h1>
+  <p>成功导入 {{ result.imported }} 条。</p>
+  {% if result.errors %}
+  <table><thead><tr><th>行号</th><th>问题</th></tr></thead><tbody>
+  {% for e in result.errors %}<tr><td>{{ e.row }}</td><td>{{ e.message }}</td></tr>{% endfor %}
+  </tbody></table>
+  {% endif %}
+  <a class="button" href="/admin/orders">返回订单查询</a>
+</section>
+{% endblock %}

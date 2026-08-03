@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>发货上报</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="mobile">
+<main class="phone-card wide-phone">
+  <div class="mobile-nav">
+    <b>{{ user.display_name }}</b>
+    <a href="/mobile">主页</a>
+    <a href="/mobile/orders">补货查看</a>
+    <a href="/mobile/my-reports">我的上报</a>
+    <a href="/logout">退出</a>
+  </div>
+
+  <section class="mobile-hero">
+    <div>
+      <h1>发货上报</h1>
+      <p>{{ today }} · 先保存草稿，确认无误后再提交给老板审核</p>
+      <p class="hint">本页会自动暂存文字和尺码；图片由老板在电脑端补传。</p>
+    </div>
+  </section>
+
+  <section class="panel mobile-section">
+    <h2>新增包货草稿</h2>
+    <form method="post" action="/mobile/today/new" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="new">
+      <input type="hidden" name="pack_date" value="{{ today }}">
+      <label>公司</label>
+      <select name="company_name" id="company" required></select>
+      <label>产品</label>
+      <select name="product_name" id="product" required></select>
+      <label>款式</label>
+      <select name="style_name" id="style" required></select>
+      <p class="hint">选择款式后，每个尺码会显示下单、已发、还差，方便核对。</p>
+      <p class="hint">数量可以直接写加法，例如：60+60+60+45。</p>
+      <div id="size-box"></div>
+      <label>备注</label>
+      <textarea name="note" rows="2"></textarea>
+      <p class="hint upload-status">点击保存后会显示“保存中，请稍等”。</p>
+      <button>保存草稿</button>
+    </form>
+  </section>
+
+  <section class="mobile-section">
+    <h2>我的包货草稿</h2>
+    {% if drafts %}
+      <div class="mobile-list">
+      {% for d in drafts %}
+        <article class="balance-item need-card">
+          <div class="item-title">{{ d.company_name }} · {{ d.product_name }}</div>
+          <div class="item-sub">{{ d.style_name }} / 未上报</div>
+          <form method="post" action="/mobile/today/{{ d.id }}/update" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="draft-{{ d.id }}">
+            {% for l in d.lines %}
+            <div class="size-row">
+              <input type="hidden" name="order_line_ids" value="{{ l.order_line_id or '' }}">
+              <input name="sizes" value="{{ l.size }}" required>
+              <input name="quantities" type="text" inputmode="decimal" value="{{ l.quantity }}" placeholder="如 60+60+45" required>
+            </div>
+            {% endfor %}
+            <textarea name="note" rows="2" placeholder="备注">{{ d.note }}</textarea>
+            {% if d.photos %}
+            <div class="report-photos">
+              {% for p in d.photos %}
+              <a href="/photos/draft/{{ p.id }}" target="_blank">
+                <img src="/photos/draft/{{ p.id }}" alt="草稿照片{{ loop.index }}">
+              </a>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <p class="hint upload-status">保存中，请稍等。</p>
+            <button>保存修改</button>
+          </form>
+          <div class="draft-actions">
+            <form method="post" action="/mobile/today/{{ d.id }}/submit">
+              <button>确认无误，提交上报</button>
+            </form>
+            <form method="post" action="/mobile/today/{{ d.id }}/delete">
+              <button class="secondary">删除草稿</button>
+            </form>
+          </div>
+        </article>
+      {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">今天还没有包货草稿。</p>
+    {% endif %}
+  </section>
+</main>
+<script>
+window.ORDER_COMPANIES = {{ companies|tojson }};
+</script>
+<script src="/static/app.js?v=20260731-order-line-report"></script>
+</body>
+</html>

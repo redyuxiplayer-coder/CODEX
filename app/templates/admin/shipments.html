@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>发货明细</h1>
+  <form method="get" class="toolbar">
+    <select name="company">
+      <option value="">全部公司</option>
+      {% for c in companies %}
+      <option value="{{ c }}" {% if selected_company==c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <button>查询</button>
+  </form>
+  <table>
+    <thead><tr><th>日期</th><th>时间</th><th>员工</th><th>公司</th><th>产品</th><th>款式</th><th>尺码数量</th><th>审核状态</th><th>原因/处理</th><th>照片</th><th>备注</th></tr></thead>
+    <tbody>
+    {% for r in reports %}
+      <tr>
+        <td>{{ r.ship_date }}</td><td>{{ r.created_at.strftime("%m-%d %H:%M") }}</td><td>{{ r.user.display_name }}</td><td>{{ r.company_name }}</td>
+        <td>{{ r.product_name }}</td><td>{{ r.style_name }}</td>
+        <td>{% for l in r.lines %}{{ l.size }} {{ l.quantity }}<br>{% endfor %}</td>
+        <td><span class="status {{ r.status }}">{{ shipment_status_label(r.status) }}</span></td>
+        <td>{{ r.review_reason }}</td>
+        <td>
+          {% if r.photos %}
+            <div class="report-photos compact-photos">
+            {% for p in r.photos %}
+              <a href="/photos/shipment/{{ p.id }}" target="_blank">
+                <img src="/photos/shipment/{{ p.id }}" alt="发货照片{{ loop.index }}">
+              </a>
+            {% endfor %}
+            </div>
+          {% else %}
+            0 张
+          {% endif %}
+          <form method="post" action="/admin/shipments/{{ r.id }}/photos" enctype="multipart/form-data" class="inline-upload-form">
+            <input type="file" name="photos" accept=".jpg,.jpeg,.png,.webp" multiple>
+            <button>补传照片</button>
+          </form>
+        </td><td>{{ r.note }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

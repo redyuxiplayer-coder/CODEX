@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>待审核</h1>
+  <table>
+    <thead><tr><th>时间</th><th>员工</th><th>公司</th><th>款式</th><th>尺码数量</th><th>审核状态</th><th>原因</th><th>照片</th><th>处理</th></tr></thead>
+    <tbody>
+    {% for r in reports %}
+      <tr class="warning">
+        <td>{{ r.created_at.strftime("%m-%d %H:%M") }}</td><td>{{ r.user.display_name }}</td><td>{{ r.company_name }}</td><td>{{ r.style_name }}</td>
+        <td>{% for l in r.lines %}{{ l.size }} {{ l.quantity }}<br>{% endfor %}</td>
+        <td><span class="status {{ r.status }}">{{ shipment_status_label(r.status) }}</span></td>
+        <td>{{ r.review_reason }}</td>
+        <td>
+          {% if r.photos %}
+            <div class="report-photos compact-photos">
+            {% for p in r.photos %}
+              <a href="/photos/shipment/{{ p.id }}" target="_blank">
+                <img src="/photos/shipment/{{ p.id }}" alt="发货照片{{ loop.index }}">
+              </a>
+            {% endfor %}
+            </div>
+          {% else %}
+            0 张
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/admin/review/{{ r.id }}/approve"><input name="note" placeholder="备注"><button>通过</button></form>
+          <form method="post" action="/admin/review/{{ r.id }}/reject"><input name="note" placeholder="备注"><button class="secondary">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="panel">
+  <h1>作业信息待审核</h1>
+  <table>
+    <thead><tr><th>时间</th><th>员工</th><th>公司</th><th>产品</th><th>款式</th><th>提交内容</th><th>处理</th></tr></thead>
+    <tbody>
+    {% for p in work_info_proposals %}
+      <tr class="warning">
+        <td>{{ p.created_at.strftime("%m-%d %H:%M") }}</td>
+        <td>{{ p.user.display_name }}</td>
+        <td>{{ p.company_name }}</td>
+        <td>{{ p.product_name }}</td>
+        <td>{{ p.style_name }}</td>
+        <td>
+          {% for row in proposal_rows(p) %}
+            <b>{{ row.section_title }}</b>：{{ row.content }}<br>
+            {% if row.photo_path %}
+              <a class="work-info-thumb" href="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}" target="_blank">
+                <img src="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}" alt="{{ row.section_title }}图片">
+              </a>
+            {% endif %}
+          {% endfor %}
+        </td>
+        <td>
+          <form method="post" action="/admin/work-info/proposals/{{ p.id }}/approve"><input name="note" placeholder="备注"><button>通过并生效</button></form>
+          <form method="post" action="/admin/work-info/proposals/{{ p.id }}/reject"><input name="note" placeholder="驳回原因"><button class="secondary">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

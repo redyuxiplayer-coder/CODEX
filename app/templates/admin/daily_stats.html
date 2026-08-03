@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>每日发货统计</h1>
+  <form method="get" class="toolbar">
+    <input type="date" name="ship_date" value="{{ ship_date }}">
+    <button>查询</button>
+  </form>
+  <section class="stats">
+    <div><b>{{ total }}</b><span>当天已通过发货</span></div>
+  </section>
+  <table>
+    <thead>
+      <tr><th>公司</th><th>产品</th><th>款式</th><th>尺码</th><th>数量</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.company }}</td>
+        <td>{{ row.product }}</td>
+        <td>{{ row.style }}</td>
+        <td>{{ row.size }}</td>
+        <td>{{ row.quantity }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

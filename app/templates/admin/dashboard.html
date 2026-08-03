@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="stats">
+  <div><b>{{ today_total }}</b><span>今日已通过发货</span></div>
+  <div><b>{{ pending }}</b><span>待审核</span></div>
+  <div><b>{{ unshipped_total }}</b><span>未发合计</span></div>
+  <div><b>{{ over_total }}</b><span>超发合计</span></div>
+</section>
+<section class="panel">
+  <h1>最近上报</h1>
+  <table>
+    <thead><tr><th>日期</th><th>时间</th><th>员工</th><th>公司</th><th>款式</th><th>数量</th><th>状态</th><th>原因</th></tr></thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td>{{ r.ship_date }}</td>
+        <td>{{ r.created_at.strftime("%m-%d %H:%M") }}</td>
+        <td>{{ r.user.display_name }}</td>
+        <td>{{ r.company_name }}</td>
+        <td>{{ r.style_name }}</td>
+        <td>{{ r.lines|sum(attribute='quantity') }}</td>
+        <td><span class="status {{ r.status }}">{{ shipment_status_label(r.status) }}</span></td>
+        <td>{{ r.review_reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

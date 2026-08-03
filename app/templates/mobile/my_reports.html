@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>我的上报</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="mobile">
+<main class="phone-card wide-phone">
+  <div class="mobile-nav"><b>{{ user.display_name }}</b><a href="/mobile">主页</a><a href="/mobile/report">发货上报</a><a href="/mobile/orders">补货查看</a><a href="/logout">退出</a></div>
+  <h1>我的上报</h1>
+  <div class="mobile-list">
+    {% for r in reports %}
+      <article class="balance-item {% if r.status == 'rejected' %}danger-card{% elif r.status == 'pending_review' %}need-card{% else %}done-card{% endif %}">
+        <div class="item-title">{{ r.ship_date }} · {{ r.company_name }}</div>
+        <div class="item-sub">{{ r.product_name }} / {{ r.style_name }} / {{ shipment_status_label(r.status) }}</div>
+        <div class="numbers">
+          {% for l in r.lines %}
+          <span>{{ l.size }} <b>{{ l.quantity }}</b></span>
+          {% endfor %}
+        </div>
+        {% if r.photos %}
+        <div class="report-photos">
+          {% for p in r.photos %}
+          <a href="/photos/shipment/{{ p.id }}" target="_blank">
+            <img src="/photos/shipment/{{ p.id }}" alt="单包照片{{ loop.index }}">
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="item-sub">照片：0 张</div>
+        {% endif %}
+      </article>
+    {% else %}
+      <p class="empty">还没有上报记录。</p>
+    {% endfor %}
+  </div>
+</main>
+</body>
+</html>

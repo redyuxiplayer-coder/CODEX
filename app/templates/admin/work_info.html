@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>包装/贴标信息</h1>
+  <div class="item-sub">{{ company }} / {{ product }} / {{ style }}</div>
+  <form method="post" action="/admin/work-info" class="work-info-form" enctype="multipart/form-data">
+    <input type="hidden" name="company_name" value="{{ company }}">
+    <input type="hidden" name="product_name" value="{{ product }}">
+    <input type="hidden" name="style_name" value="{{ style }}">
+    <div id="work-info-rows" class="work-info-rows">
+      {% for row in rows %}
+      <div class="work-info-row">
+        <input type="hidden" name="section_key" value="{{ row.section_key }}">
+        <input type="hidden" name="existing_photo_path" value="{{ row.photo_path }}">
+        <input type="hidden" name="existing_original_name" value="{{ row.original_name }}">
+        <input type="hidden" name="remove_photo" value="0">
+        <input name="section_title" value="{{ row.section_title }}" {% if not row.is_custom %}readonly{% endif %}>
+        <div class="work-info-edit-cell">
+          <textarea name="content" rows="3" placeholder="填写{{ row.section_title }}">{{ row.content }}</textarea>
+          {% if row.photo_path %}
+            <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" target="_blank">
+              <img src="/photos/work-info/{{ row.id }}" alt="{{ row.section_title }}图片">
+            </a>
+          {% endif %}
+          {% if row.photo_path %}
+            <label class="check-line">
+              <input type="checkbox" onchange="this.closest('.work-info-row').querySelector('[name=remove_photo]').value = this.checked ? '1' : '0'">
+              删除这张图片
+            </label>
+          {% endif %}
+          <label class="file-line">上传图片
+            <input type="file" name="{% if row.section_key == 'accessories' %}photo_accessories{% elif row.section_key == 'bag' %}photo_bag{% elif row.section_key == 'wash_label' %}photo_wash_label{% elif row.section_key == 'sticker' %}photo_sticker{% else %}custom_photos{% endif %}" accept=".jpg,.jpeg,.png,.webp">
+          </label>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="secondary" onclick="addWorkInfoRow()">新增自定义行</button>
+    <button>保存</button>
+  </form>
+</section>
+<script>
+function addWorkInfoRow() {
+  const container = document.getElementById("work-info-rows");
+  const row = document.createElement("div");
+  row.className = "work-info-row";
+  row.innerHTML = '<input type="hidden" name="section_key" value="custom"><input type="hidden" name="existing_photo_path" value=""><input type="hidden" name="existing_original_name" value=""><input type="hidden" name="remove_photo" value="0"><input name="section_title" value="自定义信息"><div class="work-info-edit-cell"><textarea name="content" rows="3" placeholder="填写自定义信息"></textarea><label class="file-line">上传图片<input type="file" name="custom_photos" accept=".jpg,.jpeg,.png,.webp"></label></div>';
+  container.appendChild(row);
+}
+</script>
+{% endblock %}

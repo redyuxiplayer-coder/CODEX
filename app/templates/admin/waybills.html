@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel narrow">
+  <h1>快递面单导入</h1>
+  {% if message %}<p class="notice">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/admin/waybills/import-folder" class="grid-form">
+    <label>电脑文件夹</label>
+    <input name="folder_path" value="{{ default_folder }}" required>
+    <label>面单日期</label>
+    <input type="date" name="waybill_date" value="{{ today }}">
+    <button>批量导入文件夹</button>
+  </form>
+</section>
+
+<section class="panel narrow">
+  <h2>手动上传面单</h2>
+  <form method="post" action="/admin/waybills/upload" enctype="multipart/form-data" class="grid-form">
+    <label>公司</label>
+    <select name="company" required>
+      <option value="">选择公司</option>
+      {% for c in companies %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+    <label>面单日期</label>
+    <input type="date" name="waybill_date" value="{{ today }}">
+    <label>快递面单图片</label>
+    <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp" multiple required>
+    <button>上传面单</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>已保存面单</h2>
+  <table>
+    <thead><tr><th>公司</th><th>数量</th></tr></thead>
+    <tbody>
+      {% for row in counts %}
+      <tr><td>{{ row.company }}</td><td>{{ row.count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>已上传面单明细</h2>
+  <table>
+    <thead><tr><th>公司</th><th>当前显示</th><th>面单日期</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for photo in photos %}
+      <tr>
+        <td>{{ photo.company }}</td>
+        <td>{{ photo.display_name }}</td>
+        <td>
+          <form id="waybill-date-{{ photo.id }}" method="post" action="/admin/waybills/{{ photo.id }}/date">
+            <input type="date" name="waybill_date" value="{{ photo.waybill_date }}">
+          </form>
+        </td>
+        <td><button form="waybill-date-{{ photo.id }}">保存</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

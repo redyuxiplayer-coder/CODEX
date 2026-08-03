@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>订单查询</h1>
+  <form class="toolbar" method="get">
+    <select name="company">
+      <option value="">全部公司</option>
+      {% for c in companies %}<option value="{{ c }}" {% if selected_company==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+    <span class="field-label">货物查询</span>
+    <select name="item">
+      <option value="">全部货物</option>
+      {% for choice in item_choices %}
+      <option value="{{ choice }}" {% if item==choice %}selected{% endif %}>{{ choice }}</option>
+      {% endfor %}
+    </select>
+    <button>查询</button>
+    {% if edit_mode %}
+      <a class="button secondary-link" href="/admin/orders?company={{ selected_company }}&item={{ item }}">退出编辑</a>
+    {% else %}
+      <button name="edit" value="1">编辑当前页面</button>
+    {% endif %}
+  </form>
+  {% if edit_mode %}
+  <form id="orders-batch-form" method="post" action="/admin/orders/batch-update"></form>
+  <input form="orders-batch-form" type="hidden" name="return_company" value="{{ selected_company }}">
+  <input form="orders-batch-form" type="hidden" name="return_item" value="{{ item }}">
+  <div class="batch-edit-bar">
+    <span>正在编辑当前页面 {{ balances|length }} 行</span>
+    <button form="orders-batch-form">批量保存当前页面</button>
+  </div>
+  {% endif %}
+  <table>
+    <thead><tr><th>公司</th><th>产品</th><th>款式</th><th>订单</th><th>尺码</th><th>SKU</th><th>下单</th><th>已发</th><th>未发</th><th>超发</th><th>作业信息</th><th>备注</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in balances %}
+      <tr class="{% if row.over_shipped %}danger{% endif %}">
+        {% if edit_mode %}
+        <input form="orders-batch-form" type="hidden" name="order_ids" value="{{ row.order_id }}">
+        <td><input form="orders-batch-form" name="company_names" value="{{ row.company }}" required></td>
+        <td><input form="orders-batch-form" name="product_names" value="{{ row.product }}" required></td>
+        <td><input form="orders-batch-form" name="style_names" value="{{ row.style }}" required></td>
+        <td><input form="orders-batch-form" name="order_dates" value="{{ row.order_date }}" placeholder="{{ row.order_ref or '下单日期' }}"></td>
+        <td><input form="orders-batch-form" name="sizes" value="{{ row.size }}" required></td>
+        {% else %}
+        <td>{{ row.company }}</td>
+        <td>{{ row.product }}</td>
+        <td>{{ row.style }}</td>
+        <td>{{ row.order_date or row.order_ref }}</td>
+        <td>{{ row.size }}</td>
+        {% endif %}
+        {% if edit_mode %}
+        <td><input form="orders-batch-form" name="skus" value="{{ row.sku }}" placeholder="SKU"></td>
+        <td><input form="orders-batch-form" name="quantities" type="number" value="{{ row.ordered }}" required></td>
+        {% else %}
+        <td>{{ row.sku }}</td>
+        <td>{{ row.ordered }}</td>
+        {% endif %}
+        <td>{{ row.shipped }}</td><td>{{ row.remaining }}</td><td>{{ row.over_shipped }}</td>
+        <td><a class="button mini-button" href="/admin/work-info?company={{ row.company }}&product={{ row.product }}&style={{ row.style }}">包装/贴标</a></td>
+        {% if edit_mode %}
+        <td><input form="orders-batch-form" name="notes" value="{{ row.note }}" placeholder="备注"></td>
+        {% else %}
+        <td>{{ row.note }}</td>
+        {% endif %}
+        <td class="inline-actions">
+          <form method="post" action="/admin/orders/{{ row.order_id }}/delete" class="inline-delete-form" id="delete-order-{{ row.order_id }}"></form>
+          <button form="delete-order-{{ row.order_id }}" class="secondary">删除</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if edit_mode %}
+  <div class="batch-edit-bar bottom">
+    <span>修改完后点这里一次保存</span>
+    <button form="orders-batch-form">批量保存当前页面</button>
+  </div>
+  {% endif %}
+</section>
+<section class="panel narrow">
+  <h2>导入现有 Excel</h2>
+  <form method="post" action="/admin/orders/import" enctype="multipart/form-data" class="grid-form">
+    <input type="file" name="file" accept=".xlsx" required>
+    <button>导入订单</button>
+  </form>
+</section>
+{% endblock %}

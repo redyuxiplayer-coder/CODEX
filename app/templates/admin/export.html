@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel narrow">
+  <h1>导出 Excel</h1>
+  <form method="post" class="grid-form">
+    <label>公司</label>
+    <select name="company" required>
+      <option value="__all__">全部公司</option>
+      {% for c in companies %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+    <label>导出版本</label>
+    <select name="template" required>
+      <option value="customer">客户版</option>
+      <option value="internal">内部版</option>
+    </select>
+    <button>导出表格</button>
+  </form>
+</section>
+{% endblock %}

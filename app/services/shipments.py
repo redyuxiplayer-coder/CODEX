@@ -1,0 +1,195 @@
+import json
+from datetime import datetime, timedelta
+
+from sqlalchemy.orm import Session
+from pathlib import Path
+
+from app.models import AuditLog, OrderLine, ShipmentLine, ShipmentPhoto, ShipmentReport, User
+from app.services.aliases import canonical_item
+from app.services.orders import get_order_balances
+from app.services.quantities import parse_quantity
+
+APPROVED_STATUSES = {"auto_approved", "approved_after_edit"}
+
+
+def _balance_map(session: Session, company_name: str) -> dict[tuple[str, str, str], dict]:
+    balances: dict[tuple[str, str, str], dict] = {}
+    for row in get_order_balances(session, company_name=company_name):
+        key = (row["product"], row["style"], row["size"])
+        current = balances.setdefault(key, {"ordered": 0, "shipped": 0, "remaining": 0, "over_shipped": 0})
+        current["ordered"] += int(row["ordered"])
+        current["shipped"] += int(row["shipped"])
+        current["remaining"] += int(row["remaining"])
+        current["over_shipped"] += int(row["over_shipped"])
+    return balances
+
+
+def _review_reasons(session: Session, user_id: int, company_name: str, product_name: str, style_name: str, lines: list[dict]) -> list[str]:
+    balances = _balance_map(session, company_name)
+    reasons = []
+    for line in lines:
+        size = str(line["size"]).strip()
+        quantity = int(line["quantity"])
+        order_line_id = line.get("order_line_id")
+        if order_line_id:
+            order = session.get(OrderLine, int(order_line_id))
+            balance = next((row for row in get_order_balances(session, company_name=company_name) if row["order_id"] == int(order_line_id)), None)
+            if order is None or balance is None:
+                reasons.append(f"{size} 无对应订单")
+            elif quantity > int(balance["remaining"]):
+                reasons.append(f"{size} 可能超发 {quantity - int(balance['remaining'])} 件")
+            continue
+        key = (product_name, style_name, size)
+        balance = balances.get(key)
+        if not balance:
+            reasons.append(f"{size} 无对应订单")
+            continue
+        if quantity > int(balance["remaining"]):
+            reasons.append(f"{size} 可能超发 {quantity - int(balance['remaining'])} 件")
+
+    cutoff = datetime.now() - timedelta(minutes=10)
+    for line in lines:
+        duplicate = (
+            session.query(ShipmentReport)
+            .join(ShipmentLine, ShipmentLine.report_id == ShipmentReport.id)
+            .filter(
+                ShipmentReport.user_id == user_id,
+                ShipmentReport.company_name == company_name,
+                ShipmentReport.product_name == product_name,
+                ShipmentReport.style_name == style_name,
+                ShipmentLine.size == str(line["size"]).strip(),
+                ShipmentLine.quantity == int(line["quantity"]),
+                ShipmentReport.created_at >= cutoff,
+            )
+            .first()
+        )
+        if duplicate:
+            reasons.append(f"{line['size']} 疑似重复上报")
+    return reasons
+
+
+def submit_shipment_report(
+    session: Session,
+    user_id: int,
+    ship_date: str,
+    company_name: str,
+    product_name: str,
+    style_name: str,
+    lines: list[dict],
+    photo_paths: list[str] | None = None,
+    note: str = "",
+) -> ShipmentReport:
+    cleaned_lines = [
+        {
+            "size": str(line["size"]).strip(),
+            "quantity": parse_quantity(line["quantity"]),
+            "order_line_id": int(line["order_line_id"]) if line.get("order_line_id") else None,
+        }
+        for line in lines
+        if str(line.get("size", "")).strip() and parse_quantity(line.get("quantity")) > 0
+    ]
+    canonical_product, canonical_style = canonical_item(session, company_name, product_name, style_name)
+    reasons = _review_reasons(session, user_id, company_name, canonical_product, canonical_style, cleaned_lines)
+    user = session.get(User, user_id)
+    if user and user.role == "worker":
+        reasons.insert(0, "员工上报，等待老板审核")
+    status = "pending_review" if reasons else "auto_approved"
+    report = ShipmentReport(
+        user_id=user_id,
+        ship_date=ship_date,
+        company_name=company_name,
+        product_name=canonical_product,
+        style_name=canonical_style,
+        note=note,
+        status=status,
+        review_reason="；".join(reasons),
+    )
+    session.add(report)
+    session.flush()
+    for line in cleaned_lines:
+        session.add(
+            ShipmentLine(
+                report_id=report.id,
+                order_line_id=line.get("order_line_id"),
+                size=line["size"],
+                quantity=line["quantity"],
+            )
+        )
+    for path in photo_paths or []:
+        session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
+    session.commit()
+    session.refresh(report)
+    return report
+
+
+def approve_report(session: Session, report_id: int, admin_id: int, note: str = "") -> ShipmentReport:
+    report = session.get(ShipmentReport, report_id)
+    before = report.status
+    report.status = "approved_after_edit"
+    if note:
+        report.review_reason = note
+    session.add(AuditLog(report_id=report.id, admin_id=admin_id, action="approve", before_text=before, after_text=report.status, note=note))
+    session.commit()
+    session.refresh(report)
+    return report
+
+
+def reject_report(session: Session, report_id: int, admin_id: int, note: str = "") -> ShipmentReport:
+    report = session.get(ShipmentReport, report_id)
+    before = report.status
+    report.status = "rejected"
+    if note:
+        report.review_reason = note
+    session.add(AuditLog(report_id=report.id, admin_id=admin_id, action="reject", before_text=before, after_text=report.status, note=note))
+    session.commit()
+    session.refresh(report)
+    return report
+
+
+def edit_and_approve_report(session: Session, report_id: int, admin_id: int, replacement_lines: list[dict], note: str = "") -> ShipmentReport:
+    report = session.get(ShipmentReport, report_id)
+    before = json.dumps([{"size": line.size, "quantity": line.quantity} for line in report.lines], ensure_ascii=False)
+    for line in list(report.lines):
+        session.delete(line)
+    session.flush()
+    for line in replacement_lines:
+        session.add(ShipmentLine(report_id=report.id, size=str(line["size"]).strip(), quantity=int(line["quantity"])))
+    report.status = "approved_after_edit"
+    report.review_reason = ""
+    after = json.dumps(replacement_lines, ensure_ascii=False)
+    session.add(AuditLog(report_id=report.id, admin_id=admin_id, action="edit_approve", before_text=before, after_text=after, note=note))
+    session.commit()
+    session.refresh(report)
+    return report
+
+
+def _get_own_pending_report(session: Session, report_id: int, user_id: int) -> ShipmentReport:
+    report = session.get(ShipmentReport, report_id)
+    if report is None or report.user_id != user_id:
+        raise ValueError("不能修改这条记录")
+    if report.status != "pending_review":
+        raise ValueError("只能修改待审核记录")
+    return report
+
+
+def update_own_pending_report(session: Session, report_id: int, user_id: int, replacement_lines: list[dict], note: str = "") -> ShipmentReport:
+    report = _get_own_pending_report(session, report_id, user_id)
+    for line in list(report.lines):
+        session.delete(line)
+    session.flush()
+    for line in replacement_lines:
+        size = str(line.get("size", "")).strip()
+        quantity = int(line.get("quantity") or 0)
+        if size and quantity > 0:
+            session.add(ShipmentLine(report_id=report.id, size=size, quantity=quantity))
+    report.note = note
+    report.review_reason = "员工已修改，等待老板审核"
+    session.commit()
+    session.refresh(report)
+    return report
+
+
+def delete_own_pending_report(session: Session, report_id: int, user_id: int) -> None:
+    report = _get_own_pending_report(session, report_id, user_id)
+    session.delete(report)
+    session.commit()

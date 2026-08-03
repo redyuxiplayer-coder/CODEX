@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>补货查看</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="mobile">
+<main class="phone-card wide-phone">
+  <div class="mobile-nav">
+    <b>{{ user.display_name }}</b>
+    <a href="/mobile">主页</a>
+    <a href="/mobile/report">发货上报</a>
+    <a href="/mobile/my-reports">我的上报</a>
+    <a href="/logout">退出</a>
+  </div>
+  <h1>补货查看</h1>
+  <form method="get" class="toolbar mobile-toolbar">
+    <select name="company">
+      <option value="">全部公司</option>
+      {% for c in companies %}
+      <option value="{{ c }}" {% if selected_company == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <span class="field-label">货物查询</span>
+    <select name="item">
+      <option value="">全部货物</option>
+      {% for choice in item_choices %}
+      <option value="{{ choice }}" {% if item == choice %}selected{% endif %}>{{ choice }}</option>
+      {% endfor %}
+    </select>
+    <button>查询</button>
+  </form>
+
+  <section class="mobile-section">
+    <h2>当前下单 / 已发 / 还差</h2>
+    <div class="mobile-list">
+      {% for row in balances %}
+      <article class="balance-item {% if row.over_shipped %}danger-card{% elif row.remaining > 0 %}need-card{% else %}done-card{% endif %}">
+        <div class="item-title">{{ row.company }} · {{ row.style }}</div>
+        <div class="item-sub">{{ row.product }}{% if row.order_ref %} / {{ row.order_ref }}{% endif %} / {{ row.size }}</div>
+        {% if row.sku %}<div class="item-sub">SKU：{{ row.sku }}</div>{% endif %}
+        <div class="numbers">
+          <span>下单 <b>{{ row.ordered }}</b></span>
+          <span>已发 <b>{{ row.shipped }}</b></span>
+          <span>还差 <b>{{ row.remaining }}</b></span>
+          {% if row.over_shipped %}<span>超发 <b>{{ row.over_shipped }}</b></span>{% endif %}
+        </div>
+        <a class="button work-info-button" href="/mobile/work-info?company={{ row.company }}&product={{ row.product }}&style={{ row.style }}">包装/贴标</a>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="mobile-section">
+    <h2>最近发货明细</h2>
+    <div class="mobile-list">
+      {% for r in reports %}
+      <article class="balance-item">
+        <div class="item-title">{{ r.ship_date }} · {{ r.company_name }}</div>
+        <div class="item-sub">{{ r.style_name }} / {{ r.user.display_name }} / {{ r.status }}</div>
+        <div class="numbers">
+          {% for l in r.lines %}
+          <span>{{ l.size }} <b>{{ l.quantity }}</b></span>
+          {% endfor %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>新增订单</h1>
+  {% if duplicates %}
+  <div class="notice danger-card">
+    <b>可能重复</b>
+    <p>同公司、同产品、同款式、同下单日期、同尺码已经存在订单。确认不是重复后再保存。</p>
+    <ul>
+      {% for order in duplicates %}
+      <li>{{ order.company.name }} / {{ order.product_name }} / {{ order.style_name }} / {{ order.size }} / {{ order.quantity }}件 / {{ order.order_date }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  <form method="post" action="/admin/orders/new" class="grid-form order-form">
+    <input type="hidden" name="confirm_duplicate" value="{% if duplicates %}1{% else %}0{% endif %}">
+
+    <label>公司</label>
+    <input id="order-company" name="company_name" list="company-options" value="{{ form_data.company_name or '' }}" required>
+    <datalist id="company-options">
+      {% for company in companies %}<option value="{{ company }}"></option>{% endfor %}
+    </datalist>
+
+    <label>产品</label>
+    <input id="order-product" name="product_name" list="product-options" value="{{ form_data.product_name or '' }}" required>
+    <datalist id="product-options"></datalist>
+
+    <label>款式</label>
+    <input id="order-style" name="style_name" list="style-options" value="{{ form_data.style_name or '' }}" required>
+    <datalist id="style-options"></datalist>
+
+    <label>下单日期</label>
+    <input name="order_date" type="date" value="{{ form_data.order_date or today }}">
+
+    <label>交货日期</label>
+    <input name="delivery_date" value="{{ form_data.delivery_date or '' }}" placeholder="例如 7月底 / 20天内 / 等通知">
+
+    <label>尺码数量</label>
+    <div class="size-entry-list">
+      {% set preset_sizes = form_data.sizes or ["S", "M", "L", "XL", "XXL", "均码"] %}
+      {% set preset_quantities = form_data.quantities or [] %}
+      {% for size in preset_sizes %}
+      <div class="size-row">
+        <input name="sizes" value="{{ size }}" placeholder="尺码">
+        <input name="quantities" type="number" min="0" value="{{ preset_quantities[loop.index0] if preset_quantities|length > loop.index0 else 0 }}" placeholder="数量">
+      </div>
+      {% endfor %}
+    </div>
+
+    <label>配件</label>
+    <input name="accessories" value="{{ form_data.accessories or '' }}" placeholder="例如 帽子*1-眼镜*1">
+
+    <label>材质</label>
+    <input name="material" value="{{ form_data.material or '' }}" placeholder="例如 涤纶">
+
+    <label>尺寸</label>
+    <input name="spec_size" value="{{ form_data.spec_size or '' }}" placeholder="例如 110*160CM">
+
+    <label>特殊备注</label>
+    <textarea name="note" rows="2" placeholder="其他说明">{{ form_data.note or '' }}</textarea>
+
+    <button>{% if duplicates %}确认不是重复，保存订单{% else %}保存订单{% endif %}</button>
+  </form>
+</section>
+<script>
+window.ORDER_CHOICES = {{ choices|tojson }};
+</script>
+<script src="/static/app.js"></script>
+{% endblock %}

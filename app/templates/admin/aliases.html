@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>款式统一</h1>
+  <p class="hint">把不同叫法统一到一个好查找的产品/款式。系统会用统一名称计算订单、发货、未发数量。</p>
+  <form method="post" action="/admin/aliases/new" class="grid-form">
+    <label>公司</label>
+    <input name="company_name" list="company-options" required>
+    <label>原产品叫法</label>
+    <input name="alias_product" required>
+    <label>原款式叫法</label>
+    <input name="alias_style" required>
+    <label>统一产品名</label>
+    <input name="canonical_product" required>
+    <label>统一款式名</label>
+    <input name="canonical_style" required>
+    <label>备注</label>
+    <input name="note" placeholder="例如：错别字、男女款、儿童款区别">
+    <button>新增统一规则</button>
+  </form>
+  <datalist id="company-options">
+    {% for company in companies %}<option value="{{ company }}"></option>{% endfor %}
+  </datalist>
+</section>
+
+<section class="panel">
+  <h2>已有统一规则</h2>
+  <table>
+    <thead>
+      <tr><th>公司</th><th>原产品</th><th>原款式</th><th>统一产品</th><th>统一款式</th><th>备注</th><th>状态</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+      {% for alias in aliases %}
+      <tr>
+        <form method="post" action="/admin/aliases/{{ alias.id }}/update">
+          <td><input name="company_name" value="{{ alias.company_name }}" required></td>
+          <td><input name="alias_product" value="{{ alias.alias_product }}" required></td>
+          <td><input name="alias_style" value="{{ alias.alias_style }}" required></td>
+          <td><input name="canonical_product" value="{{ alias.canonical_product }}" required></td>
+          <td><input name="canonical_style" value="{{ alias.canonical_style }}" required></td>
+          <td><input name="note" value="{{ alias.note }}"></td>
+          <td>
+            <select name="is_active">
+              <option value="1" {% if alias.is_active %}selected{% endif %}>启用</option>
+              <option value="0" {% if not alias.is_active %}selected{% endif %}>停用</option>
+            </select>
+          </td>
+          <td><button>保存</button></td>
+        </form>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

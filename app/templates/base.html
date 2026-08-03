@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "ZY服装发货管理系统" }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">ZY服装发货管理系统</div>
+    <nav>
+      <a href="/admin">首页</a>
+      <a href="/admin/orders/new">新增订单</a>
+      <a href="/admin/orders">订单查询</a>
+      <a href="/admin/aliases">款式统一</a>
+      <a href="/admin/review">待审核</a>
+      <a href="/admin/shipments">发货明细</a>
+      <a href="/admin/daily-stats">每日统计</a>
+      <a href="/admin/waybills">快递面单导入</a>
+      <a href="/admin/export">导出</a>
+      <a href="/admin/goals">今日目标</a>
+      <a href="/admin/users">账号管理</a>
+      <a href="/admin/logs">操作日志</a>
+      <a href="/mobile/report">手机上报</a>
+      <a href="/logout">退出</a>
+    </nav>
+  </header>
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

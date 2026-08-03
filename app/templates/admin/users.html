@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>账号管理</h1>
+  {% if message %}<p class="success">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <table>
+    <thead>
+      <tr><th>账号资料</th><th>修改密码</th></tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>
+          <form method="post" action="/admin/users/{{ u.id }}/update" class="edit-grid">
+            <input name="username" value="{{ u.username }}" placeholder="登录账号" required>
+            <input name="display_name" value="{{ u.display_name }}" placeholder="姓名" required>
+            <select name="role">
+              <option value="worker" {% if u.role == "worker" %}selected{% endif %}>仓库员工</option>
+              <option value="admin" {% if u.role == "admin" %}selected{% endif %}>老板/管理员</option>
+            </select>
+            <select name="is_active">
+              <option value="1" {% if u.is_active %}selected{% endif %}>启用</option>
+              <option value="0" {% if not u.is_active %}selected{% endif %}>停用</option>
+            </select>
+            <button>保存资料</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" action="/admin/users/{{ u.id }}/password" class="inline-form">
+            <input name="password" type="password" placeholder="新密码" required>
+            <button>修改</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="panel narrow">
+  <h2>新增仓库账号</h2>
+  <form method="post" action="/admin/users/new" class="grid-form">
+    <input name="username" placeholder="登录账号，例如 ck02" required>
+    <input name="display_name" placeholder="员工姓名，例如 仓库02" required>
+    <input name="password" type="password" placeholder="初始密码" required>
+    <button>新增账号</button>
+  </form>
+</section>
+{% endblock %}
