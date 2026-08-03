@@ -136,6 +136,8 @@ def backup_supabase_file_to_local(storage_path: str, base_name: str) -> None:
 
 
 def schedule_cloud_backup_to_local(storage_path: str, base_name: str) -> None:
+    if os.getenv("VERCEL"):
+        return
     thread = threading.Thread(target=backup_supabase_file_to_local, args=(storage_path, base_name), daemon=True)
     thread.start()
 

@@ -16,11 +16,17 @@ def engine_kwargs_for_url(database_url: str) -> dict:
     return {}
 
 
+def needs_local_storage(database_url: str) -> bool:
+    return database_url.startswith("sqlite")
+
+
 engine = create_engine(DATABASE_URL, **engine_kwargs_for_url(DATABASE_URL))
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_storage() -> None:
+    if not needs_local_storage(DATABASE_URL):
+        return
     DATA_DIR.mkdir(exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
