@@ -707,6 +707,8 @@ def test_admin_can_upload_photos_to_shipment_report(db_session, tmp_path, monkey
     from app.services import photos as photo_service
 
     monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
     admin = User(username="photo_admin", display_name="老板", password_hash="x", role="admin", is_active=True)
     db_session.add(admin)
     db_session.flush()
@@ -1251,6 +1253,250 @@ def test_mobile_my_reports_shows_size_details_and_photo_thumbnails(db_session, t
     assert "M <b>80</b>" in page.text
     assert 'src="/photos/shipment/' in page.text
     assert "package.png" not in page.text
+    app.dependency_overrides.clear()
+
+
+def test_worker_can_append_photos_to_own_submitted_report(db_session, tmp_path, monkeypatch):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentPhoto, ShipmentReport, User
+    from app.services import photos as photo_service
+
+    monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    worker = User(username="worker_append_photo", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+        review_reason="",
+        note="原备注",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=report.id, size="S", quantity=50))
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(report.lines[0].id)],
+            "sizes": ["S"],
+            "quantities": ["50"],
+            "note": "原备注",
+        },
+        files={"photos": ("package.png", PNG_BYTES, "image/png")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(report)
+    assert report.status == "pending_review"
+    assert report.review_reason == "员工提交更新，等待老板审核"
+    photos = db_session.query(ShipmentPhoto).filter_by(report_id=report.id).all()
+    assert len(photos) == 1
+    assert Path(photos[0].file_path).read_bytes() == PNG_BYTES
+    app.dependency_overrides.clear()
+
+
+def test_worker_update_report_keeps_existing_photos_and_sets_pending_review(db_session, tmp_path):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentPhoto, ShipmentReport, User
+
+    worker = User(username="worker_update_report", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    old_photo = tmp_path / "old.png"
+    old_photo.write_bytes(b"old-photo")
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="approved_after_edit",
+        review_reason="已通过",
+        note="原备注",
+    )
+    db_session.add(report)
+    db_session.flush()
+    line = ShipmentLine(report_id=report.id, size="M", quantity=80)
+    db_session.add(line)
+    db_session.add(ShipmentPhoto(report_id=report.id, file_path=str(old_photo), original_name="old.png"))
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(line.id)],
+            "sizes": ["M"],
+            "quantities": ["120"],
+            "note": "改后备注",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(report)
+    db_session.refresh(line)
+    assert report.status == "pending_review"
+    assert report.note == "改后备注"
+    assert line.quantity == 120
+    assert db_session.query(ShipmentPhoto).filter_by(report_id=report.id).count() == 1
+    assert old_photo.exists()
+    app.dependency_overrides.clear()
+
+
+def test_worker_cannot_update_another_workers_report(db_session):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentReport, User
+
+    owner = User(username="worker_owner", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    other = User(username="worker_other", display_name="小陈", password_hash="x", role="worker", is_active=True)
+    db_session.add_all([owner, other])
+    db_session.flush()
+    report = ShipmentReport(
+        user_id=owner.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+        review_reason="",
+        note="原备注",
+    )
+    db_session.add(report)
+    db_session.flush()
+    line = ShipmentLine(report_id=report.id, size="S", quantity=50)
+    db_session.add(line)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(other.id))
+
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(line.id)],
+            "sizes": ["S"],
+            "quantities": ["999"],
+            "note": "不该保存",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(report)
+    db_session.refresh(line)
+    assert response.headers["location"] == "/mobile/my-reports"
+    assert report.note == "原备注"
+    assert line.quantity == 50
+    app.dependency_overrides.clear()
+
+
+def test_worker_update_report_rejects_bad_photo_without_saving_changes(db_session, tmp_path, monkeypatch):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentPhoto, ShipmentReport, User
+    from app.services import photos as photo_service
+
+    monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    worker = User(username="worker_bad_photo", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+        review_reason="",
+        note="原备注",
+    )
+    db_session.add(report)
+    db_session.flush()
+    line = ShipmentLine(report_id=report.id, size="S", quantity=50)
+    db_session.add(line)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(line.id)],
+            "sizes": ["S"],
+            "quantities": ["99"],
+            "note": "不该保存",
+        },
+        files={"photos": ("bad.png", b"bad", "image/png")},
+    )
+
+    db_session.refresh(report)
+    db_session.refresh(line)
+    assert response.status_code == 200
+    assert "照片文件内容不正确" in response.text
+    assert report.status == "auto_approved"
+    assert report.note == "原备注"
+    assert line.quantity == 50
+    assert db_session.query(ShipmentPhoto).count() == 0
+    app.dependency_overrides.clear()
+
+
+def test_mobile_my_reports_shows_update_form_without_photo_delete(db_session):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentReport, User
+
+    worker = User(username="worker_update_form", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+        review_reason="",
+        note="原备注",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=report.id, size="S", quantity=50))
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/my-reports")
+
+    assert page.status_code == 200
+    assert f'action="/mobile/my-reports/{report.id}/update"' in page.text
+    assert 'name="line_ids"' in page.text
+    assert 'name="quantities"' in page.text
+    assert 'name="photos"' in page.text
+    assert "提交更新给老板审核" in page.text
+    assert "删除照片" not in page.text
+    assert "remove_photo" not in page.text
     app.dependency_overrides.clear()
 
 

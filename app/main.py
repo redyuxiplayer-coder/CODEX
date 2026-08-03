@@ -40,6 +40,7 @@ from app.services.operation_logs import log_operation, recent_operation_logs
 from app.services.packing_drafts import create_packing_draft, delete_packing_draft, submit_packing_draft, update_packing_draft
 from app.services.photos import save_uploads
 from app.services.photos import download_file_from_supabase_storage
+from app.services.quantities import parse_quantity
 from app.services.shipments import approve_report, delete_own_pending_report, reject_report, submit_shipment_report, update_own_pending_report
 from app.services.skus import upsert_sku_mapping
 from app.services.users import create_worker_user, set_user_password, update_user_profile
@@ -808,12 +809,15 @@ def create_app() -> FastAPI:
             upload_date = date.fromisoformat(report.ship_date)
         except ValueError:
             upload_date = date.today()
-        paths = await save_uploads(
-            photos,
-            company_name=report.company_name,
-            style_name=report.style_name,
-            upload_date=upload_date,
-        )
+        try:
+            paths = await save_uploads(
+                photos,
+                company_name=report.company_name,
+                style_name=report.style_name,
+                upload_date=upload_date,
+            )
+        except ValueError as exc:
+            return RedirectResponse(f"/admin/shipments?error={exc}", status_code=303)
         for path in paths:
             session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
         session.commit()
@@ -1396,6 +1400,71 @@ def create_app() -> FastAPI:
             return RedirectResponse("/login", status_code=303)
         reports = session.query(ShipmentReport).filter_by(user_id=user.id).order_by(ShipmentReport.created_at.desc()).limit(100).all()
         return templates.TemplateResponse("mobile/my_reports.html", {"request": request, "user": user, "reports": reports})
+
+    @app.post("/mobile/my-reports/{report_id}/update")
+    async def mobile_update_my_report(
+        request: Request,
+        report_id: int,
+        line_ids: list[str] = Form([]),
+        sizes: list[str] = Form([]),
+        quantities: list[str] = Form([]),
+        note: str = Form(""),
+        photos: list[UploadFile] = File([]),
+        session: Session = Depends(get_session),
+    ):
+        user = current_user(request, session)
+        if not user:
+            return RedirectResponse("/login", status_code=303)
+        report = session.get(ShipmentReport, report_id)
+        if report is None or report.user_id != user.id:
+            return RedirectResponse("/mobile/my-reports", status_code=303)
+
+        updates = []
+        for index, (size, quantity_text) in enumerate(zip(sizes, quantities)):
+            clean_size = str(size or "").strip()
+            quantity = parse_quantity(quantity_text)
+            if not clean_size or quantity <= 0:
+                continue
+            line_id = line_ids[index] if index < len(line_ids) else ""
+            updates.append({"line_id": line_id, "size": clean_size, "quantity": quantity})
+        if not updates:
+            return RedirectResponse("/mobile/my-reports", status_code=303)
+
+        try:
+            upload_date = date.fromisoformat(report.ship_date)
+        except ValueError:
+            upload_date = date.today()
+        try:
+            paths = await save_uploads(
+                photos,
+                company_name=report.company_name,
+                style_name=report.style_name,
+                upload_date=upload_date,
+            )
+        except ValueError as exc:
+            reports = session.query(ShipmentReport).filter_by(user_id=user.id).order_by(ShipmentReport.created_at.desc()).limit(100).all()
+            return templates.TemplateResponse("mobile/my_reports.html", {"request": request, "user": user, "reports": reports, "error": str(exc)})
+
+        existing_lines = {line.id: line for line in report.lines}
+        for update in updates:
+            try:
+                parsed_line_id = int(update["line_id"] or 0)
+            except ValueError:
+                parsed_line_id = 0
+            line = existing_lines.get(parsed_line_id)
+            if line is None:
+                session.add(ShipmentLine(report_id=report.id, size=update["size"], quantity=update["quantity"]))
+            else:
+                line.size = update["size"]
+                line.quantity = update["quantity"]
+        for path in paths:
+            session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
+        report.note = note.strip()
+        report.status = "pending_review"
+        report.review_reason = "员工提交更新，等待老板审核"
+        session.commit()
+        log_operation(session, user.id, "shipment_worker_update", str(report_id), f"更新发货记录，补录{len(paths)}张照片")
+        return RedirectResponse("/mobile/my-reports", status_code=303)
 
     return app
 

@@ -10,6 +10,9 @@
 <main class="phone-card wide-phone">
   <div class="mobile-nav"><b>{{ user.display_name }}</b><a href="/mobile">主页</a><a href="/mobile/report">发货上报</a><a href="/mobile/orders">补货查看</a><a href="/logout">退出</a></div>
   <h1>我的上报</h1>
+  {% if error %}
+  <p class="error">{{ error }}</p>
+  {% endif %}
   <div class="mobile-list">
     {% for r in reports %}
       <article class="balance-item {% if r.status == 'rejected' %}danger-card{% elif r.status == 'pending_review' %}need-card{% else %}done-card{% endif %}">
@@ -31,6 +34,20 @@
         {% else %}
         <div class="item-sub">照片：0 张</div>
         {% endif %}
+        <form method="post" action="/mobile/my-reports/{{ r.id }}/update" enctype="multipart/form-data" class="grid-form">
+          {% for l in r.lines %}
+          <div class="size-row">
+            <input type="hidden" name="line_ids" value="{{ l.id }}">
+            <input name="sizes" value="{{ l.size }}" required>
+            <input name="quantities" type="text" inputmode="decimal" value="{{ l.quantity }}" placeholder="如 60+60+45" required>
+          </div>
+          {% endfor %}
+          <label>备注</label>
+          <textarea name="note" rows="2">{{ r.note }}</textarea>
+          <label>补录照片</label>
+          <input type="file" name="photos" accept=".jpg,.jpeg,.png,.webp" multiple>
+          <button>提交更新给老板审核</button>
+        </form>
       </article>
     {% else %}
       <p class="empty">还没有上报记录。</p>

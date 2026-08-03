@@ -44,6 +44,8 @@ class ChunkedUpload:
 
 def test_save_uploads_writes_files_in_chunks(tmp_path, monkeypatch):
     monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
     payload = b"\xff\xd8\xff\xe0" + b"a" * (photo_service.UPLOAD_CHUNK_SIZE + 17)
     upload = ChunkedUpload("box.jpg", payload)
 
