@@ -1,4 +1,5 @@
 {
+  "regions": ["hnd1"],
   "builds": [
     {
       "src": "app/main.py",
