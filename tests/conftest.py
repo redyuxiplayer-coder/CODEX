@@ -7,6 +7,13 @@ from app.db import Base
 from app import models  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def default_admin_env(monkeypatch):
+    monkeypatch.setenv("ZY_INITIAL_ADMIN_USERNAME", "zhangyong")
+    monkeypatch.setenv("ZY_INITIAL_ADMIN_PASSWORD", "test-admin-password")
+    monkeypatch.setenv("ZY_SYNC_INITIAL_ADMIN_PASSWORD", "1")
+
+
 @pytest.fixture()
 def db_session():
     engine = create_engine(

@@ -22,7 +22,7 @@ def test_login_locks_after_three_failed_attempts():
         response = client.post("/login", data={"username": "zhangyong", "password": "wrong"})
         assert response.status_code == 200
 
-    locked = client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"})
+    locked = client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"})
 
     assert locked.status_code == 200
     assert "登录失败过多" in locked.text
@@ -31,7 +31,7 @@ def test_login_locks_after_three_failed_attempts():
 
 def test_mobile_home_page_renders_daily_goals():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/mobile")
 
@@ -42,7 +42,7 @@ def test_mobile_home_page_renders_daily_goals():
 
 def test_admin_new_order_page_and_nav_link_render():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     page = client.get("/admin/orders/new")
 
@@ -62,7 +62,7 @@ def test_admin_new_order_page_and_nav_link_render():
 
 def test_admin_orders_page_uses_batch_edit_mode():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/admin/orders")
 
@@ -229,7 +229,7 @@ def test_admin_new_order_duplicate_requires_confirmation(db_session):
 
 def test_worker_can_open_mobile_order_status_page():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/mobile/orders")
 
@@ -239,7 +239,7 @@ def test_worker_can_open_mobile_order_status_page():
 
 def test_worker_can_filter_mobile_order_status_by_item_keyword():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/mobile/orders?item=小偷")
 
@@ -250,7 +250,7 @@ def test_worker_can_filter_mobile_order_status_by_item_keyword():
 
 def test_mobile_order_status_uses_item_dropdown_not_text_input():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/mobile/orders")
 
@@ -495,7 +495,7 @@ def test_work_info_photo_can_be_removed_through_review(db_session, tmp_path):
 
 def test_mobile_today_packed_page_renders():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/mobile/report")
 
@@ -507,7 +507,7 @@ def test_mobile_today_packed_page_renders():
 
 def test_mobile_report_page_does_not_upload_photos():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/mobile/report")
 
@@ -541,7 +541,7 @@ def test_mobile_report_page_does_not_build_full_balance_payload(monkeypatch):
 
     monkeypatch.setattr(main_module, "get_order_balances", fake_balances)
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
     calls["count"] = 0
 
     response = client.get("/mobile/report")
@@ -870,7 +870,7 @@ def test_mobile_report_quantity_accepts_addition_expression(db_session):
 
 def test_mobile_report_page_uses_lazy_order_balance_hint_data():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/mobile/report")
 
@@ -889,7 +889,7 @@ def test_mobile_report_submit_script_does_not_reenter_submit_event():
 
 def test_admin_export_page_only_shows_company_export_controls():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/admin/export")
 
@@ -907,7 +907,7 @@ def test_admin_export_page_only_shows_company_export_controls():
 
 def test_admin_export_all_companies_downloads_total_workbook():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.post("/admin/export", data={"company": "__all__"})
 
@@ -1088,7 +1088,7 @@ def test_admin_aliases_page_can_create_alias(db_session):
 
 def test_admin_waybill_import_page_renders_for_admin():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/admin/waybills")
 
@@ -1167,7 +1167,7 @@ def test_admin_waybill_date_update_route_changes_existing_photo(db_session, tmp_
 
 def test_admin_users_page_can_edit_account_fields():
     client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "zhangyong123"}, follow_redirects=True)
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
 
     response = client.get("/admin/users")
 

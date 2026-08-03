@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import os
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -245,9 +246,18 @@ def mobile_report_options_payload(session: Session, company: str = "", product: 
 def ensure_default_admin() -> None:
     session = SessionLocal()
     try:
-        if session.query(User).count() == 0:
-            session.add(User(username="zhangyong", display_name="老板", password_hash=hash_password("zhangyong123"), role="admin", is_active=True))
+        initial_password = os.getenv("ZY_INITIAL_ADMIN_PASSWORD", "").strip()
+        if session.query(User).count() == 0 and initial_password:
+            username = os.getenv("ZY_INITIAL_ADMIN_USERNAME", "zhangyong").strip() or "zhangyong"
+            display_name = os.getenv("ZY_INITIAL_ADMIN_DISPLAY_NAME", "老板").strip() or "老板"
+            session.add(User(username=username, display_name=display_name, password_hash=hash_password(initial_password), role="admin", is_active=True))
             session.commit()
+        elif initial_password and os.getenv("ZY_SYNC_INITIAL_ADMIN_PASSWORD") == "1":
+            username = os.getenv("ZY_INITIAL_ADMIN_USERNAME", "zhangyong").strip() or "zhangyong"
+            user = session.query(User).filter_by(username=username).one_or_none()
+            if user is not None:
+                user.password_hash = hash_password(initial_password)
+                session.commit()
     finally:
         session.close()
 
