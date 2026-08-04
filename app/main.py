@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.auth import authenticate, current_user, hash_password, require_admin, require_user
+from app.api_v1 import router as api_v1_router
 from app.config import BASE_DIR, EXPORT_DIR, SESSION_COOKIE
 from app.db import SessionLocal, get_session, init_db
 from app.models import (
@@ -331,6 +332,7 @@ def create_app() -> FastAPI:
     init_db()
     ensure_default_admin()
     app = FastAPI(title="ZY服装发货管理系统")
+    app.include_router(api_v1_router)
     app.state.login_failures = {}
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "app" / "static")), name="static")
 
