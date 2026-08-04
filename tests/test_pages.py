@@ -60,6 +60,21 @@ def test_admin_new_order_page_and_nav_link_render():
     assert dashboard.text.index("首页") < dashboard.text.index("新增订单") < dashboard.text.index("订单查询")
 
 
+def test_admin_nav_hides_aliases_link_but_page_still_works():
+    client = TestClient(create_app())
+    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
+
+    dashboard = client.get("/admin")
+
+    assert dashboard.status_code == 200
+    assert 'href="/admin/aliases"' not in dashboard.text
+    assert "款式统一" not in dashboard.text
+
+    page = client.get("/admin/aliases")
+    assert page.status_code == 200
+    assert "款式统一" in page.text
+
+
 def test_admin_orders_page_uses_batch_edit_mode():
     client = TestClient(create_app())
     client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
