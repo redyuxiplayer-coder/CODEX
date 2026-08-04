@@ -309,3 +309,195 @@ body.mobile { background: #ffffff; }
 .mobile table { background: #ffffff; }
 .mobile th { background: #fafbfc; color: #6b7280; }
 .mobile th, .mobile td { border-color: #f0f2f4; }
+
+/* ===== 手机端排版系统：字阶 / 行高 / 间距 / 对齐 ===== */
+body.mobile {
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.mobile .phone-card {
+  padding: 24px 20px;
+}
+
+.mobile h1 {
+  font-size: 24px;
+  line-height: 1.35;
+  letter-spacing: 0.2px;
+  margin: 0 0 18px;
+}
+
+.mobile h2 {
+  font-size: 16px;
+  line-height: 1.4;
+  margin: 0 0 14px;
+  font-weight: 600;
+}
+
+.mobile .mobile-hero h1 {
+  font-size: 26px;
+  margin: 0;
+}
+
+.mobile .mobile-nav {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 20px;
+}
+
+.mobile .mobile-nav b {
+  font-size: 15px;
+  color: #111827;
+  margin-right: auto;
+}
+
+.mobile .mobile-nav a {
+  font-size: 14px;
+  padding: 6px 2px;
+}
+
+.mobile-section {
+  margin-top: 26px;
+}
+
+.mobile .panel {
+  padding: 2px 0;
+}
+
+.mobile .panel h2 {
+  margin: 0 0 16px;
+}
+
+.mobile .grid-form {
+  gap: 12px;
+}
+
+.mobile .grid-form label {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.mobile input,
+.mobile select,
+.mobile textarea {
+  padding: 12px 14px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.mobile button,
+.mobile .button {
+  padding: 12px 14px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.mobile .balance-item {
+  padding: 16px 0;
+}
+
+.mobile .item-title {
+  font-size: 15px;
+  line-height: 1.5;
+  margin-bottom: 5px;
+}
+
+.mobile .item-sub {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+
+.mobile .numbers {
+  gap: 6px 14px;
+}
+
+.mobile .numbers span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 13px;
+  color: #6b7280;
+  padding: 3px 0;
+  white-space: nowrap;
+}
+
+.mobile .numbers b {
+  font-size: 17px;
+  color: #111827;
+  font-weight: 700;
+}
+
+.mobile .size-row {
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mobile .size-row label {
+  font-size: 15px;
+}
+
+.mobile .qty-wrap {
+  gap: 8px;
+}
+
+.mobile .plus-btn {
+  flex: 0 0 46px;
+  font-size: 20px;
+}
+
+.mobile .filter-bar,
+.mobile .toolbar {
+  gap: 10px;
+}
+
+.mobile .status-tabs {
+  gap: 8px;
+}
+
+.mobile .filter-tab {
+  padding: 10px 4px;
+  font-size: 13px;
+}
+
+.mobile .company-tags {
+  gap: 8px;
+}
+
+.mobile .filter-tag {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.mobile .empty {
+  padding: 20px 4px;
+  font-size: 14px;
+  color: #9ca3af;
+}
+
+.mobile .hint {
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+
+.mobile .goal-item {
+  padding: 14px 2px;
+}
+
+.mobile .goal-item b {
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 500;
+}
+
+.mobile table {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mobile th,
+.mobile td {
+  padding: 10px 8px;
+}
