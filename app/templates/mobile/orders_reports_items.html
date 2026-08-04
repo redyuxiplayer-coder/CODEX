@@ -1,0 +1,11 @@
+{% for r in reports %}
+<article class="balance-item">
+  <div class="item-title">{{ r.ship_date }} · {{ r.company_name }}</div>
+  <div class="item-sub">{{ r.style_name }} / {{ r.user.display_name }} / {{ r.status }}</div>
+  <div class="numbers">
+    {% for l in r.lines %}
+    <span>{{ l.size }} <b>{{ l.quantity }}</b></span>
+    {% endfor %}
+  </div>
+</article>
+{% endfor %}

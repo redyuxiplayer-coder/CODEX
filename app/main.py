@@ -40,7 +40,7 @@ from app.services.orders import (
 )
 from app.services.operation_logs import log_operation, recent_operation_logs
 from app.services.packing_drafts import create_packing_draft, delete_packing_draft, submit_packing_draft, update_packing_draft
-from app.services.photos import save_uploads
+from app.services.photos import ensure_thumbnail, save_uploads
 from app.services.photos import download_file_from_supabase_storage
 from app.services.quantities import parse_quantity
 from app.services.shipments import (
@@ -325,7 +325,7 @@ def create_app() -> FastAPI:
         return response
 
     @app.get("/photos/shipment/{photo_id}")
-    def shipment_photo(photo_id: int, request: Request, session: Session = Depends(get_session)):
+    def shipment_photo(photo_id: int, request: Request, thumb: str = "", session: Session = Depends(get_session)):
         user = require_user(request, session)
         photo = session.get(ShipmentPhoto, photo_id)
         if photo is None:
@@ -341,10 +341,12 @@ def create_app() -> FastAPI:
         path = Path(photo.file_path)
         if not path.exists():
             return RedirectResponse("/admin/shipments" if user.role == "admin" else "/mobile/my-reports", status_code=303)
+        if thumb == "1" and not photo.file_path.startswith("storage://"):
+            return FileResponse(ensure_thumbnail(photo.file_path), filename=photo.original_name or path.name)
         return FileResponse(path, filename=photo.original_name or path.name)
 
     @app.get("/photos/draft/{photo_id}")
-    def draft_photo(photo_id: int, request: Request, session: Session = Depends(get_session)):
+    def draft_photo(photo_id: int, request: Request, thumb: str = "", session: Session = Depends(get_session)):
         user = require_user(request, session)
         photo = session.get(PackingDraftPhoto, photo_id)
         if photo is None:
@@ -357,10 +359,12 @@ def create_app() -> FastAPI:
         path = Path(photo.file_path)
         if not path.exists():
             return RedirectResponse("/mobile/report", status_code=303)
+        if thumb == "1":
+            return FileResponse(ensure_thumbnail(photo.file_path), filename=photo.original_name or path.name)
         return FileResponse(path, filename=photo.original_name or path.name)
 
     @app.get("/photos/work-info/{line_id}")
-    def work_info_photo(line_id: int, request: Request, session: Session = Depends(get_session)):
+    def work_info_photo(line_id: int, request: Request, thumb: str = "", session: Session = Depends(get_session)):
         user = require_user(request, session)
         line = session.get(WorkInfoLine, line_id)
         if line is None or not line.photo_path:
@@ -368,10 +372,12 @@ def create_app() -> FastAPI:
         path = Path(line.photo_path)
         if not path.exists():
             return RedirectResponse("/admin/orders" if user.role == "admin" else "/mobile/orders", status_code=303)
+        if thumb == "1":
+            return FileResponse(ensure_thumbnail(line.photo_path), filename=line.original_name or path.name)
         return FileResponse(path, filename=line.original_name or path.name)
 
     @app.get("/photos/work-info/proposal/{proposal_id}/{row_index}")
-    def work_info_proposal_photo(proposal_id: int, row_index: int, request: Request, session: Session = Depends(get_session)):
+    def work_info_proposal_photo(proposal_id: int, row_index: int, request: Request, thumb: str = "", session: Session = Depends(get_session)):
         user = require_user(request, session)
         proposal = session.get(WorkInfoProposal, proposal_id)
         if proposal is None:
@@ -382,6 +388,8 @@ def create_app() -> FastAPI:
         path = Path(rows[row_index]["photo_path"])
         if not path.exists():
             return RedirectResponse("/admin/review" if user.role == "admin" else "/mobile/orders", status_code=303)
+        if thumb == "1":
+            return FileResponse(ensure_thumbnail(rows[row_index]["photo_path"]), filename=rows[row_index].get("original_name") or path.name)
         return FileResponse(path, filename=rows[row_index].get("original_name") or path.name)
 
     @app.get("/admin")
@@ -755,13 +763,19 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse("admin/import_result.html", {"request": request, "result": result})
 
     @app.get("/admin/review")
-    def admin_review(request: Request, session: Session = Depends(get_session)):
+    def admin_review(request: Request, page: int = 1, session: Session = Depends(get_session)):
         admin = current_user(request, session)
         if not admin:
             return RedirectResponse("/login", status_code=303)
         if admin.role != "admin":
             return RedirectResponse("/mobile/report", status_code=303)
-        reports = session.query(ShipmentReport).filter_by(status="pending_review").order_by(ShipmentReport.created_at.desc()).all()
+        query = session.query(ShipmentReport).filter_by(status="pending_review").order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
+        per_page = 10
+        total = query.count()
+        page = max(1, page)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        reports = query.offset((page - 1) * per_page).limit(per_page).all()
         return templates.TemplateResponse(
             "admin/review.html",
             {
@@ -769,6 +783,9 @@ def create_app() -> FastAPI:
                 "user": admin,
                 "reports": reports,
                 "work_info_proposals": pending_work_info_proposals(session),
+                "page": page,
+                "total_pages": total_pages,
+                "total": total,
             },
         )
 
@@ -801,13 +818,13 @@ def create_app() -> FastAPI:
         return RedirectResponse("/admin/review", status_code=303)
 
     @app.get("/admin/shipments")
-    def admin_shipments(request: Request, company: str = "", session: Session = Depends(get_session)):
+    def admin_shipments(request: Request, company: str = "", page: int = 1, session: Session = Depends(get_session)):
         admin = current_user(request, session)
         if not admin:
             return RedirectResponse("/login", status_code=303)
         if admin.role != "admin":
             return RedirectResponse("/mobile/report", status_code=303)
-        query = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc())
+        query = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
         companies = [
             row[0]
             for row in session.query(ShipmentReport.company_name)
@@ -818,10 +835,24 @@ def create_app() -> FastAPI:
         ]
         if company:
             query = query.filter(ShipmentReport.company_name == company)
-        reports = query.limit(300).all()
+        per_page = 10
+        total = query.count()
+        page = max(1, page)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        reports = query.offset((page - 1) * per_page).limit(per_page).all()
         return templates.TemplateResponse(
             "admin/shipments.html",
-            {"request": request, "user": admin, "reports": reports, "companies": companies, "selected_company": company},
+            {
+                "request": request,
+                "user": admin,
+                "reports": reports,
+                "companies": companies,
+                "selected_company": company,
+                "page": page,
+                "total_pages": total_pages,
+                "total": total,
+            },
         )
 
     @app.post("/admin/shipments/{report_id}/photos")
@@ -1256,7 +1287,16 @@ def create_app() -> FastAPI:
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.get("/mobile/orders")
-    def mobile_orders(request: Request, company: str = "", item: str = "", style: str = "", status: str = "", session: Session = Depends(get_session)):
+    def mobile_orders(
+        request: Request,
+        company: str = "",
+        item: str = "",
+        style: str = "",
+        status: str = "",
+        page: int = 1,
+        partial: str = "",
+        session: Session = Depends(get_session),
+    ):
         user = current_user(request, session)
         if not user:
             return RedirectResponse("/login", status_code=303)
@@ -1274,24 +1314,33 @@ def create_app() -> FastAPI:
             and _matches_order_status(row, status_text)
         ]
         balances = sort_balances_for_display(balances)
-        reports = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc()).limit(80).all()
+        reports_query = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
+        reports_per_page = 10
+        reports_total = reports_query.count()
+        reports_page = max(1, page)
+        has_more_reports = reports_page * reports_per_page < reports_total
+        reports = reports_query.offset((reports_page - 1) * reports_per_page).limit(reports_per_page).all()
         style_choices = sorted({row["style"] for row in all_balances if (not company or row["company"] == company) and (not item_text or item_text == row["product"])})
-        return templates.TemplateResponse(
-            "mobile/orders.html",
-            {
-                "request": request,
-                "user": user,
-                "companies": companies,
-                "selected_company": company,
-                "balances": balances,
-                "reports": reports,
-                "item": item_text,
-                "style": style_text,
-                "style_choices": style_choices,
-                "status": status_text,
-                "item_choices": item_choices_with_current(all_balances, item_text),
-            },
-        )
+        context = {
+            "request": request,
+            "user": user,
+            "companies": companies,
+            "selected_company": company,
+            "balances": balances,
+            "reports": reports,
+            "item": item_text,
+            "style": style_text,
+            "style_choices": style_choices,
+            "status": status_text,
+            "item_choices": item_choices_with_current(all_balances, item_text),
+            "reports_page": reports_page,
+            "has_more_reports": has_more_reports,
+        }
+        if partial == "1":
+            response = templates.TemplateResponse("mobile/orders_reports_items.html", context)
+            response.headers["X-Has-More"] = "1" if has_more_reports else "0"
+            return response
+        return templates.TemplateResponse("mobile/orders.html", context)
 
     @app.get("/mobile/work-info")
     def mobile_work_info(
@@ -1436,12 +1485,22 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/mobile/my-reports")
-    def mobile_my_reports(request: Request, session: Session = Depends(get_session)):
+    def mobile_my_reports(request: Request, page: int = 1, partial: str = "", session: Session = Depends(get_session)):
         user = current_user(request, session)
         if not user:
             return RedirectResponse("/login", status_code=303)
-        reports = session.query(ShipmentReport).filter_by(user_id=user.id).order_by(ShipmentReport.created_at.desc()).limit(100).all()
-        return templates.TemplateResponse("mobile/my_reports.html", {"request": request, "user": user, "reports": reports})
+        query = session.query(ShipmentReport).filter_by(user_id=user.id).order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
+        per_page = 10
+        total = query.count()
+        page = max(1, page)
+        has_more = page * per_page < total
+        reports = query.offset((page - 1) * per_page).limit(per_page).all()
+        context = {"request": request, "user": user, "reports": reports, "page": page, "has_more": has_more}
+        if partial == "1":
+            response = templates.TemplateResponse("mobile/my_reports_items.html", context)
+            response.headers["X-Has-More"] = "1" if has_more else "0"
+            return response
+        return templates.TemplateResponse("mobile/my_reports.html", context)
 
     @app.post("/mobile/my-reports/{report_id}/update")
     async def mobile_update_my_report(

@@ -404,6 +404,131 @@ def test_worker_can_open_product_work_info_from_mobile_orders(db_session):
     app.dependency_overrides.clear()
 
 
+def test_shipment_photo_route_returns_thumbnail_when_requested(db_session, tmp_path, monkeypatch):
+    from PIL import Image
+
+    from app.db import get_session
+    from app.models import ShipmentPhoto, ShipmentReport, User
+    from app.services import photos as photo_service
+
+    monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(photo_service, "THUMBNAIL_DIR", tmp_path / "thumbs")
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    worker = User(username="thumb_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    source = tmp_path / "box.jpg"
+    Image.new("RGB", (1000, 700), (120, 60, 60)).save(source, "JPEG")
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男款",
+        status="auto_approved",
+        review_reason="",
+    )
+    db_session.add(report)
+    db_session.flush()
+    photo = ShipmentPhoto(report_id=report.id, file_path=str(source), original_name="box.jpg")
+    db_session.add(photo)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.get(f"/photos/shipment/{photo.id}?thumb=1")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/jpeg")
+    thumb_file = tmp_path / "thumbs" / "box_thumb.jpg"
+    assert thumb_file.exists()
+    app.dependency_overrides.clear()
+
+
+def test_admin_shipments_paginates_ten_per_page(db_session):
+    from datetime import datetime, timedelta
+
+    from app.db import get_session
+    from app.models import ShipmentReport, User
+
+    admin = User(username="page_admin", display_name="老板", password_hash="x", role="admin", is_active=True)
+    db_session.add(admin)
+    db_session.commit()
+    base = datetime(2026, 7, 1, 8, 0, 0)
+    for index in range(12):
+        db_session.add(
+            ShipmentReport(
+                user_id=admin.id,
+                ship_date=f"2026-07-{index + 1:02d}",
+                company_name="源兴发",
+                product_name="小红帽",
+                style_name=f"款式{index + 1}",
+                status="auto_approved",
+                review_reason="",
+                created_at=base + timedelta(minutes=index),
+            )
+        )
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(admin.id))
+
+    page1 = client.get("/admin/shipments")
+    page2 = client.get("/admin/shipments?page=2")
+
+    assert page1.status_code == 200
+    assert "款式12</td>" in page1.text
+    assert "款式1</td>" not in page1.text
+    assert "下一页" in page1.text
+    assert page2.status_code == 200
+    assert "款式1</td>" in page2.text
+    assert "款式12</td>" not in page2.text
+    app.dependency_overrides.clear()
+
+
+def test_mobile_my_reports_loads_more_pages(db_session):
+    from datetime import datetime, timedelta
+
+    from app.db import get_session
+    from app.models import ShipmentReport, User
+
+    worker = User(username="load_more_worker", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    base = datetime(2026, 7, 1, 8, 0, 0)
+    for index in range(12):
+        db_session.add(
+            ShipmentReport(
+                user_id=worker.id,
+                ship_date=f"2026-07-{index + 1:02d}",
+                company_name="源兴发",
+                product_name="小红帽",
+                style_name=f"款式{index + 1}",
+                status="auto_approved",
+                review_reason="",
+                created_at=base + timedelta(minutes=index),
+            )
+        )
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page1 = client.get("/mobile/my-reports")
+
+    assert page1.status_code == 200
+    assert "小红帽 / 款式12 /" in page1.text
+    assert "小红帽 / 款式1 /" not in page1.text
+    assert "小红帽 / 款式2 /" not in page1.text
+    assert "加载更多" in page1.text
+    app.dependency_overrides.clear()
+
+
 def test_worker_work_info_proposal_requires_admin_approval(db_session):
     from app.db import get_session
     from app.models import User

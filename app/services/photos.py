@@ -12,10 +12,13 @@ from datetime import date
 from fastapi import UploadFile
 
 from app.config import MAX_PHOTOS_PER_REPORT, UPLOAD_DIR
+from app.config import THUMBNAIL_DIR
 
 ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 SUPABASE_UPLOAD_BUCKET = "shipment-uploads"
+THUMBNAIL_MAX_SIDE = 120
+THUMBNAIL_QUALITY = 80
 
 
 def is_supported_image_content(suffix: str, data: bytes) -> bool:
@@ -128,6 +131,31 @@ def save_local_upload(base_name: str, data: bytes) -> str:
     target = unique_target(base_name)
     target.write_bytes(data)
     return str(target)
+
+
+def thumbnail_path_for(source_path: str) -> Path:
+    source = Path(source_path)
+    return THUMBNAIL_DIR / f"{source.stem}_thumb.jpg"
+
+
+def ensure_thumbnail(source_path: str) -> Path:
+    """Return a cached 120px JPEG thumbnail for a local photo file."""
+    from PIL import Image, ImageOps
+
+    source = Path(source_path)
+    if not source.exists():
+        raise ValueError("照片文件不存在")
+    THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
+    target = thumbnail_path_for(source_path)
+    if target.exists():
+        return target
+    with Image.open(source) as image:
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((THUMBNAIL_MAX_SIDE, THUMBNAIL_MAX_SIDE))
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        image.save(target, "JPEG", quality=THUMBNAIL_QUALITY, optimize=True)
+    return target
 
 
 def backup_supabase_file_to_local(storage_path: str, base_name: str) -> None:

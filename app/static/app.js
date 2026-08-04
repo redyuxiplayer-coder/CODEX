@@ -427,6 +427,38 @@ function setupPhotoLightbox() {
   });
 }
 
+function setupLoadMore() {
+  document.querySelectorAll("[data-load-more]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (button.dataset.loading === "1") return;
+      button.dataset.loading = "1";
+      button.textContent = "加载中...";
+      try {
+        const response = await fetch(`${button.dataset.loadMore}&partial=1`, { credentials: "same-origin" });
+        if (!response.ok) throw new Error("load more failed");
+        const html = await response.text();
+        const container = document.querySelector(button.dataset.target || "#my-reports-list");
+        if (!container) return;
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = html.trim();
+        wrapper.querySelectorAll(":scope > *").forEach((node) => container.appendChild(node));
+        if (response.headers.get("X-Has-More") === "0") {
+          button.remove();
+          return;
+        }
+        const next = button.dataset.nextPage ? parseInt(button.dataset.nextPage, 10) : 2;
+        button.dataset.nextPage = String(next + 1);
+        button.dataset.loadMore = button.dataset.loadMore.replace(/([?&]page=)\d+/, `$1${next}`);
+        button.textContent = "加载更多";
+      } catch (_) {
+        button.textContent = "加载失败，点击重试";
+      } finally {
+        button.dataset.loading = "0";
+      }
+    });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const company = document.getElementById("company");
   if (company) {
@@ -442,6 +474,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupReportDraftForms();
   setupQuantityPlusButtons();
   setupPhotoLightbox();
+  setupLoadMore();
 
   const orderCompany = document.getElementById("order-company");
   if (!orderCompany) return;

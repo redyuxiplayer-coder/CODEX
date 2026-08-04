@@ -66,7 +66,7 @@
             <div class="report-photos">
               {% for p in d.photos %}
               <a href="/photos/draft/{{ p.id }}" data-lightbox="draft-{{ d.id }}">
-                <img src="/photos/draft/{{ p.id }}" alt="草稿照片{{ loop.index }}">
+                <img src="/photos/draft/{{ p.id }}?thumb=1" alt="草稿照片{{ loop.index }}">
               </a>
               {% endfor %}
             </div>

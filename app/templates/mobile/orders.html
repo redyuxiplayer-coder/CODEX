@@ -68,19 +68,16 @@
 
   <section class="mobile-section">
     <h2>最近发货明细</h2>
-    <div class="mobile-list">
-      {% for r in reports %}
-      <article class="balance-item">
-        <div class="item-title">{{ r.ship_date }} · {{ r.company_name }}</div>
-        <div class="item-sub">{{ r.style_name }} / {{ r.user.display_name }} / {{ r.status }}</div>
-        <div class="numbers">
-          {% for l in r.lines %}
-          <span>{{ l.size }} <b>{{ l.quantity }}</b></span>
-          {% endfor %}
-        </div>
-      </article>
-      {% endfor %}
+    <div class="mobile-list" id="recent-shipments-list">
+      {% include "mobile/orders_reports_items.html" %}
     </div>
+    {% if has_more_reports %}
+    <button
+      class="load-more-btn"
+      data-load-more="/mobile/orders?company={{ selected_company }}&item={{ item }}&style={{ style }}&status={{ status }}&page={{ reports_page + 1 }}"
+      data-target="#recent-shipments-list"
+      data-next-page="{{ reports_page + 1 }}">加载更多</button>
+    {% endif %}
   </section>
 </main>
 </body>

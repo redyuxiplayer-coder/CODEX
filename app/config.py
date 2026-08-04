@@ -4,6 +4,7 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
+THUMBNAIL_DIR = DATA_DIR / "thumbs"
 WAYBILL_DIR = DATA_DIR / "waybills"
 EXPORT_DIR = DATA_DIR / "exports"
 DATABASE_PATH = DATA_DIR / "zy_shipping.sqlite3"

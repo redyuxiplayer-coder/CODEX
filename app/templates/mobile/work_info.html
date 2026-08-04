@@ -26,7 +26,7 @@
         <div class="work-info-content">{{ row.content or "未填写" }}</div>
         {% if row.photo_path %}
           <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" data-lightbox="work-info-{{ row.id }}">
-            <img src="/photos/work-info/{{ row.id }}" alt="{{ row.section_title }}图片">
+            <img src="/photos/work-info/{{ row.id }}?thumb=1" alt="{{ row.section_title }}图片">
           </a>
         {% endif %}
       </article>
@@ -52,7 +52,7 @@
             <textarea name="content" rows="3">{{ row.content }}</textarea>
             {% if row.photo_path %}
               <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" data-lightbox="work-info-{{ row.id }}">
-                <img src="/photos/work-info/{{ row.id }}" alt="{{ row.section_title }}图片">
+                <img src="/photos/work-info/{{ row.id }}?thumb=1" alt="{{ row.section_title }}图片">
               </a>
             {% endif %}
             {% if row.photo_path %}

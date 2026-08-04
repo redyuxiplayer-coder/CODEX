@@ -16,7 +16,7 @@
             <div class="report-photos compact-photos">
             {% for p in r.photos %}
               <a href="/photos/shipment/{{ p.id }}" data-lightbox="report-{{ r.id }}">
-                <img src="/photos/shipment/{{ p.id }}" alt="发货照片{{ loop.index }}">
+                <img src="/photos/shipment/{{ p.id }}?thumb=1" alt="发货照片{{ loop.index }}">
               </a>
             {% endfor %}
             </div>
@@ -50,7 +50,7 @@
             <b>{{ row.section_title }}</b>：{{ row.content }}<br>
             {% if row.photo_path %}
 <a class="work-info-thumb" href="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}" data-lightbox="work-info-proposal-{{ p.id }}">
-                <img src="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}" alt="{{ row.section_title }}图片">
+                <img src="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}?thumb=1" alt="{{ row.section_title }}图片">
               </a>
             {% endif %}
           {% endfor %}
@@ -63,5 +63,14 @@
     {% endfor %}
     </tbody>
   </table>
+  <div class="pager">
+    {% if page > 1 %}
+    <a class="button mini-button" href="?page={{ page - 1 }}">上一页</a>
+    {% endif %}
+    <span>第 {{ page }} / {{ total_pages }} 页（共 {{ total }} 条）</span>
+    {% if page < total_pages %}
+    <a class="button mini-button" href="?page={{ page + 1 }}">下一页</a>
+    {% endif %}
+  </div>
 </section>
 {% endblock %}

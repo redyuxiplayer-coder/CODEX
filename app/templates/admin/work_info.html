@@ -19,7 +19,7 @@
           <textarea name="content" rows="3" placeholder="填写{{ row.section_title }}">{{ row.content }}</textarea>
           {% if row.photo_path %}
 <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" data-lightbox="work-info-{{ row.id }}">
-              <img src="/photos/work-info/{{ row.id }}" alt="{{ row.section_title }}图片">
+                <img src="/photos/work-info/{{ row.id }}?thumb=1" alt="{{ row.section_title }}图片">
             </a>
           {% endif %}
           {% if row.photo_path %}

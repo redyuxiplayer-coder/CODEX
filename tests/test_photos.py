@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.config import UPLOAD_DIR
 from app.services import photos as photo_service
-from app.services.photos import build_shipment_photo_name, parse_storage_path, save_uploads
+from app.services.photos import build_shipment_photo_name, ensure_thumbnail, parse_storage_path, save_uploads
 
 
 JPG_BYTES = b"\xff\xd8\xff\xe0" + b"a" * 128 + b"\xff\xd9"
@@ -123,3 +123,33 @@ def test_parse_storage_path_returns_bucket_and_object_name():
 
     assert bucket == "shipment-uploads"
     assert object_name == "2026-07-30_photo_01_abcd.jpg"
+
+
+def test_ensure_thumbnail_generates_small_jpeg(tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "box.jpg"
+    Image.new("RGB", (1200, 800), (200, 80, 80)).save(source, "JPEG", quality=90)
+
+    thumb = ensure_thumbnail(str(source))
+
+    assert thumb.exists()
+    assert thumb.stat().st_size > 0
+    with Image.open(thumb) as img:
+        assert img.width <= 120
+        assert img.height <= 120
+    assert thumb.name.endswith(".jpg")
+
+
+def test_ensure_thumbnail_is_cached(tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "box.jpg"
+    Image.new("RGB", (800, 600), (80, 80, 200)).save(source, "JPEG")
+
+    first = ensure_thumbnail(str(source))
+    first_mtime = first.stat().st_mtime_ns
+    second = ensure_thumbnail(str(source))
+
+    assert first == second
+    assert second.stat().st_mtime_ns == first_mtime

@@ -1,0 +1,39 @@
+{% for r in reports %}
+<article class="balance-item {% if r.status == 'rejected' %}danger-card{% elif r.status == 'pending_review' %}need-card{% else %}done-card{% endif %}">
+  <div class="item-title">{{ r.ship_date }} · {{ r.company_name }}</div>
+  <div class="item-sub">{{ r.product_name }} / {{ r.style_name }} / {{ shipment_status_label(r.status) }}</div>
+  <div class="numbers">
+    {% for l in r.lines %}
+    <span>{{ l.size }} <b>{{ l.quantity }}</b></span>
+    {% endfor %}
+  </div>
+  {% if r.photos %}
+  <div class="report-photos">
+    {% for p in r.photos %}
+    <a href="/photos/shipment/{{ p.id }}" data-lightbox="report-{{ r.id }}">
+      <img src="/photos/shipment/{{ p.id }}?thumb=1" alt="单包照片{{ loop.index }}">
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="item-sub">照片：0 张</div>
+  {% endif %}
+  <form method="post" action="/mobile/my-reports/{{ r.id }}/update" enctype="multipart/form-data" class="grid-form">
+    {% for l in r.lines %}
+    <div class="size-row">
+      <input type="hidden" name="line_ids" value="{{ l.id }}">
+      <input name="sizes" value="{{ l.size }}" required>
+      <div class="qty-wrap">
+        <input name="quantities" type="text" inputmode="decimal" value="{{ l.quantity }}" placeholder="如 60+60+45" required>
+        <button type="button" class="plus-btn" aria-label="追加加号">+</button>
+      </div>
+    </div>
+    {% endfor %}
+    <label>备注</label>
+    <textarea name="note" rows="2">{{ r.note }}</textarea>
+    <label>补录照片</label>
+    <input type="file" name="photos" accept=".jpg,.jpeg,.png,.webp" multiple>
+    <button>提交更新给老板审核</button>
+  </form>
+</article>
+{% endfor %}
