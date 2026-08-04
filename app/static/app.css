@@ -60,6 +60,14 @@ button.secondary { background: #6b7280; margin-top: 4px; }
 .field-label { align-self: center; color: #475467; font-weight: 700; text-align: center; }
 .mobile-section { margin-top: 18px; }
 .mobile-list { display: grid; gap: 10px; }
+.orders-filter { display: grid; gap: 10px; margin-bottom: 14px; }
+.orders-filter label { font-size: 13px; color: #475467; font-weight: 700; }
+.company-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.filter-tag { display: inline-block; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; color: #195faa; font-size: 14px; }
+.filter-tag.active { background: #1768ac; border-color: #1768ac; color: #fff; font-weight: 700; }
+.status-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.filter-tab { display: block; padding: 9px 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #475467; font-size: 13px; }
+.filter-tab.active { background: #eef7ff; border-color: #1768ac; color: #1768ac; font-weight: 700; }
 .balance-item { border: 1px solid #d9e0e8; border-radius: 8px; padding: 10px; background: #fff; }
 .item-title { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
 .item-sub { color: #667085; margin-bottom: 8px; }
@@ -69,6 +77,8 @@ button.secondary { background: #6b7280; margin-top: 4px; }
 .need-card { border-left: 5px solid #d97706; }
 .done-card { border-left: 5px solid #18884f; }
 .danger-card { border-left: 5px solid #b42318; }
+.done-card .item-title, .done-card .item-sub { color: #98a2b3; }
+.done-card .numbers span { background: #f8fafc; }
 .size-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
 .size-row label { font-weight: 700; }
 .balance-size-row { grid-template-columns: 80px 1fr; border: 1px solid #d9e0e8; border-radius: 8px; padding: 8px; background: #fff; }

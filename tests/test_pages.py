@@ -259,7 +259,7 @@ def test_worker_can_filter_mobile_order_status_by_item_keyword():
     response = client.get("/mobile/orders?item=小偷")
 
     assert response.status_code == 200
-    assert "货物查询" in response.text
+    assert '<label>货物</label>' in response.text
     assert 'value="小偷"' in response.text
 
 
@@ -272,6 +272,56 @@ def test_mobile_order_status_uses_item_dropdown_not_text_input():
     assert response.status_code == 200
     assert '<select name="item"' in response.text
     assert 'placeholder="货物查询"' not in response.text
+
+
+def test_mobile_orders_filters_by_status(db_session):
+    from app.db import get_session
+    from app.models import User
+    from app.services.orders import create_order_line
+
+    worker = User(username="orders_status_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男款", "M", 500)
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男款", "L", 100)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    all_page = client.get("/mobile/orders?company=源兴发")
+    assert "源兴发 · 小红帽男款" in all_page.text
+
+    # 全部未发时，status=need 应显示，status=over 应为空
+    need_page = client.get("/mobile/orders?company=源兴发&status=need")
+    assert "源兴发 · 小红帽男款" in need_page.text
+    over_page = client.get("/mobile/orders?company=源兴发&status=over")
+    assert "源兴发 · 小红帽男款" not in over_page.text
+    app.dependency_overrides.clear()
+
+
+def test_mobile_orders_filters_by_style(db_session):
+    from app.db import get_session
+    from app.models import User
+    from app.services.orders import create_order_line
+
+    worker = User(username="orders_style_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男款", "M", 500)
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽女款", "L", 300)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/orders?company=源兴发&item=小红帽&style=小红帽男款")
+
+    assert page.status_code == 200
+    assert "源兴发 · 小红帽男款" in page.text
+    assert "源兴发 · 小红帽女款" not in page.text
+    assert 'selected' in page.text
+    app.dependency_overrides.clear()
 
 
 def test_admin_can_save_product_work_instructions(db_session):

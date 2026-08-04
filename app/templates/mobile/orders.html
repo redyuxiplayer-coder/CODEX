@@ -16,21 +16,34 @@
     <a href="/logout">退出</a>
   </div>
   <h1>补货查看</h1>
-  <form method="get" class="toolbar mobile-toolbar">
-    <select name="company">
-      <option value="">全部公司</option>
+  <form method="get" class="orders-filter">
+    <div class="company-tags">
+      <a class="filter-tag {% if not selected_company %}active{% endif %}" href="?item={{ item }}&style={{ style }}&status={{ status }}">全部</a>
       {% for c in companies %}
-      <option value="{{ c }}" {% if selected_company == c %}selected{% endif %}>{{ c }}</option>
+      <a class="filter-tag {% if selected_company == c %}active{% endif %}" href="?company={{ c }}&item={{ item }}&style={{ style }}&status={{ status }}">{{ c }}</a>
       {% endfor %}
-    </select>
-    <span class="field-label">货物查询</span>
-    <select name="item">
+    </div>
+    <input type="hidden" name="company" value="{{ selected_company }}">
+    <label>货物</label>
+    <select name="item" onchange="this.form.submit()">
       <option value="">全部货物</option>
       {% for choice in item_choices %}
       <option value="{{ choice }}" {% if item == choice %}selected{% endif %}>{{ choice }}</option>
       {% endfor %}
     </select>
-    <button>查询</button>
+    <label>款式</label>
+    <select name="style" onchange="this.form.submit()">
+      <option value="">全部款式</option>
+      {% for choice in style_choices %}
+      <option value="{{ choice }}" {% if style == choice %}selected{% endif %}>{{ choice }}</option>
+      {% endfor %}
+    </select>
+    <div class="status-tabs">
+      <a class="filter-tab {% if status == 'all' %}active{% endif %}" href="?company={{ selected_company }}&item={{ item }}&style={{ style }}&status=all">全部</a>
+      <a class="filter-tab {% if status == 'need' %}active{% endif %}" href="?company={{ selected_company }}&item={{ item }}&style={{ style }}&status=need">只看还差</a>
+      <a class="filter-tab {% if status == 'over' %}active{% endif %}" href="?company={{ selected_company }}&item={{ item }}&style={{ style }}&status=over">只看超发</a>
+      <a class="filter-tab {% if status == 'done' %}active{% endif %}" href="?company={{ selected_company }}&item={{ item }}&style={{ style }}&status=done">已完成</a>
+    </div>
   </form>
 
   <section class="mobile-section">

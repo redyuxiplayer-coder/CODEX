@@ -165,6 +165,18 @@ def sort_balances_for_display(balances: list[dict]) -> list[dict]:
     )
 
 
+def _matches_order_status(row: dict, status: str) -> bool:
+    remaining = int(row.get("remaining") or 0)
+    over_shipped = int(row.get("over_shipped") or 0)
+    if status == "need":
+        return remaining > 0
+    if status == "over":
+        return over_shipped > 0
+    if status == "done":
+        return remaining <= 0 and over_shipped <= 0
+    return True
+
+
 def balances_for_report_hint_from_balances(balances: list[dict]) -> dict:
     hints: dict[str, dict[str, dict[str, dict[str, dict[str, int]]]]] = {}
     for row in balances:
@@ -1244,21 +1256,26 @@ def create_app() -> FastAPI:
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.get("/mobile/orders")
-    def mobile_orders(request: Request, company: str = "", item: str = "", session: Session = Depends(get_session)):
+    def mobile_orders(request: Request, company: str = "", item: str = "", style: str = "", status: str = "", session: Session = Depends(get_session)):
         user = current_user(request, session)
         if not user:
             return RedirectResponse("/login", status_code=303)
         all_balances = get_order_balances(session)
         companies = sorted({row["company"] for row in all_balances})
         item_text = item.strip()
+        style_text = style.strip()
+        status_text = status.strip() or "all"
         balances = [
             row
             for row in all_balances
             if (not company or row["company"] == company)
             and (not item_text or item_text == row["product"])
+            and (not style_text or style_text == row["style"])
+            and _matches_order_status(row, status_text)
         ]
         balances = sort_balances_for_display(balances)
         reports = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc()).limit(80).all()
+        style_choices = sorted({row["style"] for row in all_balances if (not company or row["company"] == company) and (not item_text or item_text == row["product"])})
         return templates.TemplateResponse(
             "mobile/orders.html",
             {
@@ -1269,6 +1286,9 @@ def create_app() -> FastAPI:
                 "balances": balances,
                 "reports": reports,
                 "item": item_text,
+                "style": style_text,
+                "style_choices": style_choices,
+                "status": status_text,
                 "item_choices": item_choices_with_current(all_balances, item_text),
             },
         )
