@@ -1,6 +1,11 @@
 from app.models import ShipmentReport, User
 from app.services.orders import create_order_line, get_order_balances
-from app.services.shipments import delete_own_pending_report, submit_shipment_report, update_own_pending_report
+from app.services.shipments import (
+    delete_own_pending_report,
+    edit_and_approve_report,
+    submit_shipment_report,
+    update_own_pending_report,
+)
 
 
 def test_worker_can_update_own_pending_report(db_session):
@@ -55,3 +60,79 @@ def test_worker_can_delete_own_pending_report(db_session):
     delete_own_pending_report(db_session, report.id, worker.id)
 
     assert db_session.get(ShipmentReport, report.id) is None
+
+
+def test_update_own_pending_report_keeps_order_line_id(db_session):
+    worker = User(username="worker_keep_binding", display_name="仓库A", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    order = create_order_line(db_session, "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", "L", 400)
+    report = submit_shipment_report(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "张鹏",
+        "万圣节-僵尸棒球",
+        "万圣节-僵尸棒球",
+        [{"size": "L", "quantity": 100, "order_line_id": order.id}],
+        [],
+        "原备注",
+    )
+
+    updated = update_own_pending_report(db_session, report.id, worker.id, [{"size": "L", "quantity": 120}], "改后备注")
+
+    assert updated.status == "pending_review"
+    assert updated.lines[0].order_line_id == order.id
+
+
+def test_update_own_pending_report_backfills_order_line_id_for_new_size(db_session):
+    worker = User(username="worker_backfill", display_name="仓库A", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    order = create_order_line(db_session, "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", "M", 200)
+    report = submit_shipment_report(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "张鹏",
+        "万圣节-僵尸棒球",
+        "万圣节-僵尸棒球",
+        [{"size": "L", "quantity": 100}],
+        [],
+        "",
+    )
+
+    updated = update_own_pending_report(
+        db_session,
+        report.id,
+        worker.id,
+        [{"size": "L", "quantity": 100}, {"size": "M", "quantity": 50}],
+        "",
+    )
+
+    new_line = next(line for line in updated.lines if line.size == "M")
+    assert new_line.order_line_id == order.id
+
+
+def test_edit_and_approve_report_keeps_order_line_id(db_session):
+    worker = User(username="worker_edit_keep", display_name="仓库A", password_hash="x", role="worker", is_active=True)
+    admin = User(username="admin_edit_keep", display_name="老板", password_hash="x", role="admin", is_active=True)
+    db_session.add_all([worker, admin])
+    db_session.commit()
+    order = create_order_line(db_session, "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", "L", 400)
+    report = submit_shipment_report(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "张鹏",
+        "万圣节-僵尸棒球",
+        "万圣节-僵尸棒球",
+        [{"size": "L", "quantity": 100, "order_line_id": order.id}],
+        [],
+        "",
+    )
+
+    updated = edit_and_approve_report(db_session, report.id, admin.id, [{"size": "L", "quantity": 150}], "老板改")
+
+    assert updated.status == "approved_after_edit"
+    assert updated.lines[0].order_line_id == order.id

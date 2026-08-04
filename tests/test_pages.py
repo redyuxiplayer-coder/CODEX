@@ -1360,6 +1360,112 @@ def test_worker_update_report_keeps_existing_photos_and_sets_pending_review(db_s
     app.dependency_overrides.clear()
 
 
+def test_worker_update_my_report_backfills_order_line_id_for_new_size(db_session):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentReport, User
+    from app.services.orders import create_order_line
+
+    worker = User(username="worker_backfill_route", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    order = create_order_line(db_session, "源兴发", "小红帽", "小红帽男", "M", 200)
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+        review_reason="",
+        note="原备注",
+    )
+    db_session.add(report)
+    db_session.flush()
+    existing = ShipmentLine(report_id=report.id, size="S", quantity=50)
+    db_session.add(existing)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(existing.id), ""],
+            "sizes": ["S", "M"],
+            "quantities": ["50", "30"],
+            "note": "补一个新尺码",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    db_session.refresh(report)
+    new_line = next(line for line in report.lines if line.size == "M")
+    assert new_line.order_line_id == order.id
+    app.dependency_overrides.clear()
+
+
+def test_worker_update_my_report_writes_structured_audit_log(db_session, tmp_path, monkeypatch):
+    import json
+
+    from app.db import get_session
+    from app.models import AuditLog, ShipmentLine, ShipmentReport, User
+    from app.services import photos as photo_service
+
+    monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
+    worker = User(username="worker_audit", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+        review_reason="",
+        note="原备注",
+    )
+    db_session.add(report)
+    db_session.flush()
+    line = ShipmentLine(report_id=report.id, size="S", quantity=50)
+    db_session.add(line)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(line.id)],
+            "sizes": ["S"],
+            "quantities": ["80"],
+            "note": "改后备注",
+        },
+        files={"photos": ("package.png", PNG_BYTES, "image/png")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    audit = db_session.query(AuditLog).filter_by(report_id=report.id).one()
+    assert audit.action == "worker_update"
+    assert audit.admin_id == worker.id
+    before = json.loads(audit.before_text)
+    after = json.loads(audit.after_text)
+    assert before[0]["size"] == "S"
+    assert before[0]["quantity"] == 50
+    assert after[0]["size"] == "S"
+    assert after[0]["quantity"] == 80
+    assert "补录1张照片" in audit.note
+    app.dependency_overrides.clear()
+
+
 def test_worker_cannot_update_another_workers_report(db_session):
     from app.db import get_session
     from app.models import ShipmentLine, ShipmentReport, User

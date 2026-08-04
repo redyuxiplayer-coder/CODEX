@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import json
 import os
 from pathlib import Path
 from urllib.parse import urlencode
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth import authenticate, current_user, hash_password, require_admin, require_user
 from app.config import BASE_DIR, EXPORT_DIR, SESSION_COOKIE
 from app.db import SessionLocal, get_session, init_db
-from app.models import Company, OrderLine, PackingDraft, PackingDraftPhoto, ShipmentPhoto, ShipmentReport, User, WorkInfoLine, WorkInfoProposal
+from app.models import AuditLog, Company, OrderLine, PackingDraft, PackingDraftPhoto, ShipmentLine, ShipmentPhoto, ShipmentReport, User, WorkInfoLine, WorkInfoProposal
 from app.services.aliases import canonical_item, create_product_alias, list_product_aliases, update_product_alias
 from app.services.exports import (
     export_company_workbook,
@@ -42,7 +43,14 @@ from app.services.packing_drafts import create_packing_draft, delete_packing_dra
 from app.services.photos import save_uploads
 from app.services.photos import download_file_from_supabase_storage
 from app.services.quantities import parse_quantity
-from app.services.shipments import approve_report, delete_own_pending_report, reject_report, submit_shipment_report, update_own_pending_report
+from app.services.shipments import (
+    approve_report,
+    delete_own_pending_report,
+    reject_report,
+    resolve_order_line_id,
+    submit_shipment_report,
+    update_own_pending_report,
+)
 from app.services.skus import upsert_sku_mapping
 from app.services.users import create_worker_user, set_user_password, update_user_profile
 from app.services.waybills import import_waybill_directory, list_waybill_photos, save_waybill_uploads, update_waybill_date, waybill_display_name
@@ -1455,6 +1463,7 @@ def create_app() -> FastAPI:
             reports = session.query(ShipmentReport).filter_by(user_id=user.id).order_by(ShipmentReport.created_at.desc()).limit(100).all()
             return templates.TemplateResponse("mobile/my_reports.html", {"request": request, "user": user, "reports": reports, "error": str(exc)})
 
+        before_lines = [{"size": line.size, "quantity": line.quantity} for line in report.lines]
         existing_lines = {line.id: line for line in report.lines}
         for update in updates:
             try:
@@ -1463,8 +1472,24 @@ def create_app() -> FastAPI:
                 parsed_line_id = 0
             line = existing_lines.get(parsed_line_id)
             if line is None:
-                session.add(ShipmentLine(report_id=report.id, size=update["size"], quantity=update["quantity"]))
+                order_line_id = resolve_order_line_id(
+                    session,
+                    report.company_name,
+                    report.product_name,
+                    report.style_name,
+                    update["size"],
+                )
+                session.add(ShipmentLine(report_id=report.id, order_line_id=order_line_id, size=update["size"], quantity=update["quantity"]))
             else:
+                if str(line.size or "").strip() != update["size"]:
+                    line.order_line_id = resolve_order_line_id(
+                        session,
+                        report.company_name,
+                        report.product_name,
+                        report.style_name,
+                        update["size"],
+                        preferred=line.order_line_id,
+                    )
                 line.size = update["size"]
                 line.quantity = update["quantity"]
         for path in paths:
@@ -1472,6 +1497,17 @@ def create_app() -> FastAPI:
         report.note = note.strip()
         report.status = "pending_review"
         report.review_reason = "员工提交更新，等待老板审核"
+        after_lines = [{"size": line.size, "quantity": line.quantity} for line in report.lines]
+        session.add(
+            AuditLog(
+                report_id=report.id,
+                admin_id=user.id,
+                action="worker_update",
+                before_text=json.dumps(before_lines, ensure_ascii=False),
+                after_text=json.dumps(after_lines, ensure_ascii=False),
+                note=f"员工更新，补录{len(paths)}张照片",
+            )
+        )
         session.commit()
         log_operation(session, user.id, "shipment_worker_update", str(report_id), f"更新发货记录，补录{len(paths)}张照片")
         return RedirectResponse("/mobile/my-reports", status_code=303)
