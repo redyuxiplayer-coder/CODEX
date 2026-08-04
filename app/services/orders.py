@@ -4,7 +4,16 @@ from openpyxl import load_workbook
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Company, OrderLine, ShipmentLine, ShipmentReport, User
+from app.models import (
+    Company,
+    OrderAdjustment,
+    OrderLine,
+    OrderLineClose,
+    ReturnRework,
+    ShipmentLine,
+    ShipmentReport,
+    User,
+)
 from app.services.aliases import canonical_item
 from app.services.skus import sku_lookup
 
@@ -280,6 +289,32 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
         canonical_product, canonical_style = canonical_item(session, company, product, style)
         key = (company, canonical_product, canonical_style, size)
         shipped[key] = shipped.get(key, 0) + int(qty or 0)
+
+    returned_by_order_id = {
+        int(order_id): int(qty or 0)
+        for order_id, qty in session.query(ReturnRework.order_line_id, func.sum(ReturnRework.quantity))
+        .group_by(ReturnRework.order_line_id)
+        .all()
+    }
+    adjusted_by_order_id = {
+        int(order_id): int(qty or 0)
+        for order_id, qty in session.query(OrderAdjustment.order_line_id, func.sum(OrderAdjustment.quantity))
+        .group_by(OrderAdjustment.order_line_id)
+        .all()
+    }
+    scrapped_by_order_id = {
+        int(order_id): int(qty or 0)
+        for order_id, qty in session.query(ReturnRework.order_line_id, func.sum(ReturnRework.quantity))
+        .filter(ReturnRework.status == "scrapped")
+        .group_by(ReturnRework.order_line_id)
+        .all()
+    }
+    closed_by_order_id = {
+        int(order_id): int(qty or 0)
+        for order_id, qty in session.query(OrderLineClose.order_line_id, func.sum(OrderLineClose.quantity))
+        .group_by(OrderLineClose.order_line_id)
+        .all()
+    }
     skus = sku_lookup(session, company_name)
 
     raw_counts: dict[tuple[str, str, str, str, str, str, str], int] = {}
@@ -325,6 +360,9 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
                 "shipped": 0,
                 "remaining": 0,
                 "over_shipped": 0,
+                "returned": 0,
+                "adjusted": 0,
+                "closed": 0,
                 "note": row.note or "",
                 "sku": skus.get(base_key, ""),
             },
@@ -356,8 +394,16 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
             if index == len(sorted_rows) - 1 and remaining_shipped > 0:
                 shipped_qty += remaining_shipped
                 remaining_shipped = 0
-            remaining = ordered - shipped_qty
+            returned = sum(returned_by_order_id.get(order_id, 0) for order_id in row.get("order_ids", []))
+            adjusted = sum(adjusted_by_order_id.get(order_id, 0) for order_id in row.get("order_ids", [])) + sum(
+                scrapped_by_order_id.get(order_id, 0) for order_id in row.get("order_ids", [])
+            )
+            closed = sum(closed_by_order_id.get(order_id, 0) for order_id in row.get("order_ids", []))
+            remaining = ordered - shipped_qty + returned - adjusted - closed
             row["shipped"] = shipped_qty
+            row["returned"] = returned
+            row["adjusted"] = adjusted
+            row["closed"] = closed
             row["remaining"] = remaining
             row["over_shipped"] = max(0, -remaining)
             balances.append(row)
