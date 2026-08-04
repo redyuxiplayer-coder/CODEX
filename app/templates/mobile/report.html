@@ -33,6 +33,11 @@
       <select name="product_name" id="product" required></select>
       <label>款式</label>
       <select name="style_name" id="style" required></select>
+      <label>扫码（可选）</label>
+      <div class="qty-wrap">
+        <input type="text" id="scan-code" placeholder="扫描或输入条码后点“带出”" autocomplete="off">
+        <button type="button" class="plus-btn" id="scan-btn" aria-label="扫码带出">带出</button>
+      </div>
       <p class="hint">选好款式后填写尺码数量；多个数量用 <b>+</b> 连接，例如 60+60+45。</p>
       <div id="size-box"></div>
       <label>备注</label>

@@ -3,7 +3,7 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from app.services.exports import export_company_workbook
-from app.services.orders import create_order_line, get_order_balances
+from app.services.orders import create_order_line, get_order_balances, update_order_line
 from app.services.skus import import_sku_mappings_from_excel, upsert_sku_mapping
 
 
@@ -35,3 +35,21 @@ def test_company_export_contains_sku_column(db_session, tmp_path: Path):
     headers = [cell.value for cell in ws[1]]
     assert headers[:11] == ["公司", "产品", "款式", "订单", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量", "超发数量"]
     assert ws["F2"].value == "SKU-HOOD-M"
+
+
+def test_create_order_line_auto_resolves_sku_from_mapping(db_session):
+    upsert_sku_mapping(db_session, "源兴发", "裁判", "圆领裁判", "S", "SKU-REF-S")
+
+    order = create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "S", 100)
+
+    assert order.sku == "SKU-REF-S"
+
+
+def test_update_order_line_re_resolves_sku_from_mapping(db_session):
+    order = create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "S", 100)
+    assert order.sku == ""
+    upsert_sku_mapping(db_session, "源兴发", "裁判", "圆领裁判", "M", "SKU-REF-M")
+
+    update_order_line(db_session, order.id, size="M")
+
+    assert order.sku == "SKU-REF-M"

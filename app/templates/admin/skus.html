@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <h1>SKU/条码管理</h1>
+  {% if message %}<p class="success">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="get" class="toolbar">
+    <input name="q" value="{{ q }}" placeholder="按公司/产品/款式/尺码/SKU/条码搜索">
+    <button>搜索</button>
+  </form>
+  <table>
+    <thead><tr><th>公司</th><th>产品</th><th>款式</th><th>尺码</th><th>SKU</th><th>条码</th><th>保存</th></tr></thead>
+    <tbody>
+    {% for m in mappings %}
+      <tr>
+        <form method="post" action="/admin/skus/{{ m.id }}/update">
+          <td>{{ m.company_name }}<input type="hidden" name="company_name" value="{{ m.company_name }}"></td>
+          <td>{{ m.product_name }}<input type="hidden" name="product_name" value="{{ m.product_name }}"></td>
+          <td>{{ m.style_name }}<input type="hidden" name="style_name" value="{{ m.style_name }}"></td>
+          <td>{{ m.size }}<input type="hidden" name="size" value="{{ m.size }}"></td>
+          <td><input name="sku" value="{{ m.sku }}" placeholder="SKU"></td>
+          <td><input name="barcode" value="{{ m.barcode }}" placeholder="条码"></td>
+          <td><button>保存</button></td>
+        </form>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty">还没有 SKU 对应关系，可以先用 Excel 导入。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="panel narrow">
+  <h2>导入 SKU 表</h2>
+  <p class="hint">Excel 表头需要包含：公司、产品、款式、尺码、SKU（可选条码列暂不读取，可在页面上补填）。</p>
+  <form method="post" action="/admin/skus/import" enctype="multipart/form-data" class="grid-form">
+    <input type="file" name="file" accept=".xlsx" required>
+    <button>导入 SKU</button>
+  </form>
+</section>
+{% endblock %}

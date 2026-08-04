@@ -72,7 +72,12 @@ from app.services.shipments import (
     submit_shipment_report,
     update_own_pending_report,
 )
-from app.services.skus import upsert_sku_mapping
+from app.services.skus import (
+    barcode_lookup,
+    import_sku_mappings_from_excel,
+    list_sku_mappings,
+    upsert_sku_mapping,
+)
 from app.services.users import create_worker_user, set_user_password, update_user_profile
 from app.services.waybills import import_waybill_directory, list_waybill_photos, save_waybill_uploads, update_waybill_date, waybill_display_name
 from app.services.work_info import (
@@ -611,6 +616,64 @@ def create_app() -> FastAPI:
             {"request": request, "user": admin, "aliases": list_product_aliases(session), "companies": companies},
         )
 
+    @app.get("/admin/skus")
+    def admin_skus(
+        request: Request,
+        q: str = "",
+        message: str = "",
+        error: str = "",
+        session: Session = Depends(get_session),
+    ):
+        admin = current_user(request, session)
+        if not admin:
+            return RedirectResponse("/login", status_code=303)
+        if admin.role != "admin":
+            return RedirectResponse("/mobile/report", status_code=303)
+        return templates.TemplateResponse(
+            "admin/skus.html",
+            {
+                "request": request,
+                "user": admin,
+                "mappings": list_sku_mappings(session, q),
+                "q": q.strip(),
+                "message": message,
+                "error": error,
+            },
+        )
+
+    @app.post("/admin/skus/{mapping_id}/update")
+    def admin_sku_update(
+        request: Request,
+        mapping_id: int,
+        company_name: str = Form(...),
+        product_name: str = Form(...),
+        style_name: str = Form(...),
+        size: str = Form(...),
+        sku: str = Form(...),
+        barcode: str = Form(""),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        upsert_sku_mapping(session, company_name, product_name, style_name, size, sku, barcode)
+        log_operation(session, admin.id, "sku_update", str(mapping_id), f"{product_name}/{style_name} {size} => {sku}")
+        return RedirectResponse("/admin/skus?message=SKU已保存", status_code=303)
+
+    @app.post("/admin/skus/import")
+    async def admin_sku_import(
+        request: Request,
+        file: UploadFile = File(...),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        target = EXPORT_DIR / f"sku_{file.filename}"
+        target.write_bytes(await file.read())
+        try:
+            result = import_sku_mappings_from_excel(session, target)
+            log_operation(session, admin.id, "sku_import", file.filename or "", f"导入{result['imported']}条，跳过{result['skipped']}条")
+            return RedirectResponse(f"/admin/skus?message=已导入{result['imported']}条，跳过{result['skipped']}条", status_code=303)
+        except ValueError as exc:
+            return RedirectResponse(f"/admin/skus?error={exc}", status_code=303)
+
     @app.post("/admin/aliases/new")
     def admin_create_alias(
         request: Request,
@@ -790,6 +853,7 @@ def create_app() -> FastAPI:
                 size=sizes[index],
                 quantity=quantities[index],
                 note=notes[index],
+                sku=skus[index] if index < len(skus) else None,
             )
             sku = skus[index] if index < len(skus) else ""
             upsert_sku_mapping(session, company_names[index], product_names[index], style_names[index], sizes[index], sku)
@@ -1398,6 +1462,24 @@ def create_app() -> FastAPI:
         if not user:
             return JSONResponse({"detail": "请先登录"}, status_code=401)
         return mobile_report_options_payload(session, company.strip(), product.strip(), style.strip())
+
+    @app.get("/mobile/report/scan")
+    def mobile_report_scan(
+        request: Request,
+        code: str = "",
+        session: Session = Depends(get_session),
+    ):
+        user = require_user(request, session)
+        mapping = barcode_lookup(session, code)
+        if mapping is None:
+            return JSONResponse({"detail": "未找到该条码对应的款式"})
+        return JSONResponse(
+            {
+                "company": mapping.company_name,
+                "product": mapping.product_name,
+                "style": mapping.style_name,
+            }
+        )
 
     @app.post("/mobile/today/new")
     async def mobile_today_new(

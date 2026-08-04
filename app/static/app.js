@@ -364,6 +364,49 @@ function setupQuantityPlusButtons() {
   });
 }
 
+function setupBarcodeScan() {
+  const input = document.getElementById("scan-code");
+  const button = document.getElementById("scan-btn");
+  if (!input || !button) return;
+  async function scan() {
+    const code = input.value.trim();
+    if (!code) return;
+    input.disabled = true;
+    button.disabled = true;
+    try {
+      const response = await fetch(`/mobile/report/scan?code=${encodeURIComponent(code)}`, {
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error("scan failed");
+      const data = await response.json();
+      if (!data.company) {
+        alert(data.detail || "未找到该条码对应的款式");
+        return;
+      }
+      const company = document.getElementById("company");
+      const product = document.getElementById("product");
+      const style = document.getElementById("style");
+      company.value = data.company;
+      await updateProducts(data.product);
+      await updateStyles(data.style);
+      await updateSizes();
+    } catch (_) {
+      alert("扫码查询失败，请检查网络");
+    } finally {
+      input.disabled = false;
+      button.disabled = false;
+      input.focus();
+    }
+  }
+  button.addEventListener("click", scan);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      scan();
+    }
+  });
+}
+
 function setupPhotoLightbox() {
   const overlay = document.createElement("div");
   overlay.className = "lightbox";
@@ -473,6 +516,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   setupReportDraftForms();
   setupQuantityPlusButtons();
+  setupBarcodeScan();
   setupPhotoLightbox();
   setupLoadMore();
 

@@ -59,18 +59,26 @@ def create_order_line(
     delivery_date: str = "",
     note: str = "",
     batch: str = "",
+    sku: str = "",
 ) -> OrderLine:
     company = get_or_create_company(session, company_name)
+    clean_company = clean_text(company_name)
+    clean_product = clean_text(product_name)
+    clean_style = clean_text(style_name)
+    clean_size = clean_text(size)
+    if not sku:
+        sku = sku_lookup(session, clean_company).get((clean_company, clean_product, clean_style, clean_size), "")
     order = OrderLine(
         company_id=company.id,
-        product_name=clean_text(product_name),
-        style_name=clean_text(style_name),
-        size=clean_text(size),
+        product_name=clean_product,
+        style_name=clean_style,
+        size=clean_size,
         quantity=int(quantity),
         order_date=clean_text(order_date),
         delivery_date=clean_text(delivery_date),
         note=clean_text(note),
         batch=clean_text(batch),
+        sku=clean_text(sku),
         is_active=True,
     )
     session.add(order)
@@ -177,18 +185,33 @@ def update_order_line(
     order_date: str | None = None,
     delivery_date: str | None = None,
     note: str | None = None,
+    sku: str | None = None,
 ) -> OrderLine:
     order = session.get(OrderLine, order_id)
     if order is None:
         raise ValueError("订单不存在")
+    company_changed = False
     if company_name is not None:
         order.company = get_or_create_company(session, company_name)
+        company_changed = True
     if product_name is not None:
         order.product_name = clean_text(product_name)
     if style_name is not None:
         order.style_name = clean_text(style_name)
     if size is not None:
         order.size = clean_text(size)
+    if (
+        company_changed
+        or product_name is not None
+        or style_name is not None
+        or size is not None
+    ) and sku is None:
+        order.sku = sku_lookup(session, order.company.name).get(
+            (order.company.name, order.product_name, order.style_name, order.size),
+            "",
+        )
+    if sku is not None:
+        order.sku = clean_text(sku)
     if quantity is not None:
         order.quantity = int(quantity)
     if order_date is not None:
@@ -257,6 +280,7 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
             OrderLine.order_date.label("order_date"),
             OrderLine.delivery_date.label("delivery_date"),
             OrderLine.batch.label("batch"),
+            OrderLine.sku.label("sku"),
             OrderLine.note.label("note"),
         )
         .join(Company, Company.id == OrderLine.company_id)
@@ -364,7 +388,7 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
                 "adjusted": 0,
                 "closed": 0,
                 "note": row.note or "",
-                "sku": skus.get(base_key, ""),
+                "sku": row.sku or skus.get(base_key, ""),
             },
         )
         order_sort.setdefault(key, (row.order_date or row.batch or "", int(row.id or 0)))

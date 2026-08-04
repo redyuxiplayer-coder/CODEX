@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from openpyxl import load_workbook
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import SkuMapping
@@ -20,12 +21,14 @@ def upsert_sku_mapping(
     style_name: str,
     size: str,
     sku: str,
+    barcode: str = "",
 ) -> SkuMapping:
     company_name = clean_text(company_name)
     product_name = clean_text(product_name)
     style_name = clean_text(style_name)
     size = clean_text(size)
     sku = clean_text(sku)
+    barcode = clean_text(barcode)
     mapping = (
         session.query(SkuMapping)
         .filter_by(company_name=company_name, product_name=product_name, style_name=style_name, size=size)
@@ -38,10 +41,12 @@ def upsert_sku_mapping(
             style_name=style_name,
             size=size,
             sku=sku,
+            barcode=barcode,
         )
         session.add(mapping)
     else:
         mapping.sku = sku
+        mapping.barcode = barcode
         mapping.updated_at = datetime.now()
     session.commit()
     session.refresh(mapping)
@@ -57,6 +62,40 @@ def sku_lookup(session: Session, company_name: str | None = None) -> dict[tuple[
         for row in query.all()
         if row.sku
     }
+
+
+def barcode_lookup(session: Session, barcode: str) -> SkuMapping | None:
+    barcode = clean_text(barcode)
+    if not barcode:
+        return None
+    return (
+        session.query(SkuMapping)
+        .filter(SkuMapping.barcode == barcode)
+        .order_by(SkuMapping.id)
+        .first()
+    )
+
+
+def list_sku_mappings(session: Session, q: str = "") -> list[SkuMapping]:
+    query = session.query(SkuMapping)
+    q = clean_text(q)
+    if q:
+        query = query.filter(
+            or_(
+                SkuMapping.company_name.contains(q),
+                SkuMapping.product_name.contains(q),
+                SkuMapping.style_name.contains(q),
+                SkuMapping.size.contains(q),
+                SkuMapping.sku.contains(q),
+                SkuMapping.barcode.contains(q),
+            )
+        )
+    return query.order_by(
+        SkuMapping.company_name,
+        SkuMapping.product_name,
+        SkuMapping.style_name,
+        SkuMapping.size,
+    ).all()
 
 
 def import_sku_mappings_from_excel(session: Session, path: Path) -> dict[str, int]:
