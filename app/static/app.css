@@ -117,6 +117,12 @@ button.secondary { background: #6b7280; margin-top: 4px; }
 .work-info-thumb { display: inline-block; width: 132px; max-width: 100%; color: #195faa; font-size: 13px; }
 .work-info-thumb img { width: 132px; height: 132px; max-width: 100%; object-fit: cover; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; }
 .work-info-thumb span { overflow-wrap: anywhere; }
+.comment-list { list-style: none; padding: 0; margin: 0 0 14px; }
+.comment-list li { padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 8px; background: #f8fafc; line-height: 1.6; }
+.comment-list li b { color: #195faa; }
+.inline-status-form { display: flex; gap: 6px; align-items: center; }
+.inline-status-form select { padding: 5px 8px; }
+.inline-status-form button { white-space: nowrap; }
 .file-line { display: grid; gap: 6px; color: #4b5563; font-size: 13px; }
 .file-line input { padding: 8px; background: #f8fafc; }
 .check-line { display: flex; align-items: center; gap: 8px; color: #9a3412; font-size: 13px; }

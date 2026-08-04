@@ -13,7 +13,26 @@ from sqlalchemy.orm import Session
 from app.auth import authenticate, current_user, hash_password, require_admin, require_user
 from app.config import BASE_DIR, EXPORT_DIR, SESSION_COOKIE
 from app.db import SessionLocal, get_session, init_db
-from app.models import AuditLog, Company, OrderLine, PackingDraft, PackingDraftPhoto, ShipmentLine, ShipmentPhoto, ShipmentReport, User, WorkInfoLine, WorkInfoProposal
+from app.models import (
+    AuditLog,
+    Company,
+    OrderAdjustment,
+    OrderLine,
+    OrderLineClose,
+    OrderLineComment,
+    OrderLedgerEntry,
+    PackingDraft,
+    PackingDraftPhoto,
+    ReturnRework,
+    ReturnReworkPhoto,
+    ShipmentLine,
+    ShipmentPhoto,
+    ShipmentReport,
+    User,
+    WorkInfoLine,
+    WorkInfoProposal,
+)
+from app.services.adjustments import create_order_adjustment, create_order_line_close, list_adjustments, list_closes
 from app.services.aliases import canonical_item, create_product_alias, list_product_aliases, update_product_alias
 from app.services.exports import (
     export_company_workbook,
@@ -43,6 +62,8 @@ from app.services.packing_drafts import create_packing_draft, delete_packing_dra
 from app.services.photos import ensure_thumbnail, save_uploads
 from app.services.photos import download_file_from_supabase_storage
 from app.services.quantities import parse_quantity
+from app.services.ledger import order_line_totals, recompute_for_report
+from app.services.returns import create_return_rework, list_return_reworks, set_return_rework_status
 from app.services.shipments import (
     approve_report,
     delete_own_pending_report,
@@ -76,7 +97,26 @@ def shipment_status_label(status: str) -> str:
     }.get(status, status)
 
 
+def ledger_type_label(movement_type: str) -> str:
+    return {
+        "shipped": "发货",
+        "returned": "退回/返工",
+        "adjusted": "核销/调整",
+        "closed": "关闭",
+    }.get(movement_type, movement_type)
+
+
+def return_status_label(status: str) -> str:
+    return {
+        "pending_rework": "待返工",
+        "reworked": "已返工",
+        "scrapped": "已报废",
+    }.get(status, status)
+
+
 templates.env.globals["shipment_status_label"] = shipment_status_label
+templates.env.globals["ledger_type_label"] = ledger_type_label
+templates.env.globals["return_status_label"] = return_status_label
 templates.env.globals["proposal_rows"] = proposal_rows
 
 LOGIN_FAILURE_LIMIT = 3
@@ -359,6 +399,19 @@ def create_app() -> FastAPI:
         path = Path(photo.file_path)
         if not path.exists():
             return RedirectResponse("/mobile/report", status_code=303)
+        if thumb == "1":
+            return FileResponse(ensure_thumbnail(photo.file_path), filename=photo.original_name or path.name)
+        return FileResponse(path, filename=photo.original_name or path.name)
+
+    @app.get("/photos/return/{photo_id}")
+    def return_photo(photo_id: int, request: Request, thumb: str = "", session: Session = Depends(get_session)):
+        user = require_user(request, session)
+        photo = session.get(ReturnReworkPhoto, photo_id)
+        if photo is None:
+            return RedirectResponse("/admin/orders", status_code=303)
+        path = Path(photo.file_path)
+        if not path.exists():
+            return RedirectResponse("/admin/orders", status_code=303)
         if thumb == "1":
             return FileResponse(ensure_thumbnail(photo.file_path), filename=photo.original_name or path.name)
         return FileResponse(path, filename=photo.original_name or path.name)
@@ -752,6 +805,119 @@ def create_app() -> FastAPI:
         delete_order_line(session, order_id)
         log_operation(session, admin.id, "order_delete", str(order_id), "")
         return RedirectResponse("/admin/orders", status_code=303)
+
+    @app.get("/admin/order-lines/{line_id}")
+    def admin_order_line_detail(request: Request, line_id: int, session: Session = Depends(get_session)):
+        admin = current_user(request, session)
+        if not admin:
+            return RedirectResponse("/login", status_code=303)
+        if admin.role != "admin":
+            return RedirectResponse("/mobile/report", status_code=303)
+        order = session.get(OrderLine, line_id)
+        if order is None or not order.is_active:
+            return RedirectResponse("/admin/orders", status_code=303)
+        shipments = (
+            session.query(ShipmentReport, ShipmentLine)
+            .join(ShipmentLine, ShipmentLine.report_id == ShipmentReport.id)
+            .filter(
+                ShipmentLine.order_line_id == line_id,
+                ShipmentReport.status.in_(("auto_approved", "approved_after_edit")),
+            )
+            .order_by(ShipmentReport.ship_date.desc(), ShipmentReport.id.desc())
+            .all()
+        )
+        return templates.TemplateResponse(
+            "admin/order_line.html",
+            {
+                "request": request,
+                "user": admin,
+                "order": order,
+                "totals": order_line_totals(session, line_id),
+                "ledger": session.query(OrderLedgerEntry)
+                .filter_by(order_line_id=line_id)
+                .order_by(OrderLedgerEntry.created_at.desc(), OrderLedgerEntry.id.desc())
+                .all(),
+                "returns": list_return_reworks(session, line_id),
+                "adjustments": list_adjustments(session, line_id),
+                "closes": list_closes(session, line_id),
+                "comments": session.query(OrderLineComment)
+                .filter_by(order_line_id=line_id)
+                .order_by(OrderLineComment.created_at.desc(), OrderLineComment.id.desc())
+                .all(),
+                "shipments": shipments,
+            },
+        )
+
+    @app.post("/admin/order-lines/{line_id}/returns")
+    async def admin_order_line_add_return(
+        request: Request,
+        line_id: int,
+        quantity: int = Form(...),
+        reason_type: str = Form("退回返工"),
+        reason: str = Form(""),
+        status: str = Form("pending_rework"),
+        photos: list[UploadFile] = File([]),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        paths = await save_uploads(photos)
+        create_return_rework(session, line_id, admin.id, quantity, reason_type, reason, status, photo_paths=paths)
+        log_operation(session, admin.id, "return_create", str(line_id), f"{reason_type} {quantity}件 {reason}")
+        return RedirectResponse(f"/admin/order-lines/{line_id}", status_code=303)
+
+    @app.post("/admin/order-lines/{line_id}/returns/{return_id}/status")
+    def admin_order_line_return_status(
+        request: Request,
+        line_id: int,
+        return_id: int,
+        status: str = Form(...),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        set_return_rework_status(session, return_id, status)
+        log_operation(session, admin.id, "return_status", str(line_id), f"返工状态改为 {status}")
+        return RedirectResponse(f"/admin/order-lines/{line_id}", status_code=303)
+
+    @app.post("/admin/order-lines/{line_id}/adjustments")
+    def admin_order_line_add_adjustment(
+        request: Request,
+        line_id: int,
+        quantity: int = Form(...),
+        reason: str = Form(""),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        create_order_adjustment(session, line_id, admin.id, quantity, reason)
+        log_operation(session, admin.id, "adjustment_create", str(line_id), f"调整 {quantity}件 {reason}")
+        return RedirectResponse(f"/admin/order-lines/{line_id}", status_code=303)
+
+    @app.post("/admin/order-lines/{line_id}/closes")
+    def admin_order_line_add_close(
+        request: Request,
+        line_id: int,
+        quantity: int = Form(...),
+        reason: str = Form(""),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        create_order_line_close(session, line_id, admin.id, quantity, reason)
+        log_operation(session, admin.id, "close_create", str(line_id), f"关闭 {quantity}件 {reason}")
+        return RedirectResponse(f"/admin/order-lines/{line_id}", status_code=303)
+
+    @app.post("/admin/order-lines/{line_id}/comments")
+    def admin_order_line_add_comment(
+        request: Request,
+        line_id: int,
+        content: str = Form(...),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        content = content.strip()
+        if content:
+            session.add(OrderLineComment(order_line_id=line_id, user_id=admin.id, content=content))
+            session.commit()
+            log_operation(session, admin.id, "comment_create", str(line_id), content)
+        return RedirectResponse(f"/admin/order-lines/{line_id}", status_code=303)
 
     @app.post("/admin/orders/import")
     async def admin_import_orders(request: Request, file: UploadFile = File(...), session: Session = Depends(get_session)):
@@ -1592,6 +1758,7 @@ def create_app() -> FastAPI:
             )
         )
         session.commit()
+        recompute_for_report(session, report.id)
         log_operation(session, user.id, "shipment_worker_update", str(report_id), f"更新发货记录，补录{len(paths)}张照片")
         return RedirectResponse("/mobile/my-reports", status_code=303)
 

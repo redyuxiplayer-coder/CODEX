@@ -101,6 +101,17 @@ def recompute_order_ledger(session: Session, order_line_id: int) -> None:
     session.commit()
 
 
+def recompute_for_report(session: Session, report_id: int) -> None:
+    """重建某发货单涉及的订单行流水。"""
+    order_line_ids = {
+        int(line.order_line_id)
+        for line in session.query(ShipmentLine).filter_by(report_id=report_id).all()
+        if line.order_line_id
+    }
+    for order_line_id in order_line_ids:
+        recompute_order_ledger(session, order_line_id)
+
+
 def order_line_totals(session: Session, order_line_id: int) -> dict[str, int]:
     """单个订单行的发货/退回/调整/关闭/剩余汇总，与流水同源。"""
     order = session.get(OrderLine, order_line_id)

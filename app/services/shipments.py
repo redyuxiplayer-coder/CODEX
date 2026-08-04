@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.models import AuditLog, OrderLine, ShipmentLine, ShipmentPhoto, ShipmentReport, User
 from app.services.aliases import canonical_item
+from app.services.ledger import recompute_for_report, recompute_order_ledger
 from app.services.orders import get_order_balances
 from app.services.quantities import parse_quantity
 
@@ -182,6 +183,7 @@ def submit_shipment_report(
         session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
     session.commit()
     session.refresh(report)
+    recompute_for_report(session, report.id)
     return report
 
 
@@ -194,6 +196,7 @@ def approve_report(session: Session, report_id: int, admin_id: int, note: str = 
     session.add(AuditLog(report_id=report.id, admin_id=admin_id, action="approve", before_text=before, after_text=report.status, note=note))
     session.commit()
     session.refresh(report)
+    recompute_for_report(session, report.id)
     return report
 
 
@@ -206,6 +209,7 @@ def reject_report(session: Session, report_id: int, admin_id: int, note: str = "
     session.add(AuditLog(report_id=report.id, admin_id=admin_id, action="reject", before_text=before, after_text=report.status, note=note))
     session.commit()
     session.refresh(report)
+    recompute_for_report(session, report.id)
     return report
 
 
@@ -231,6 +235,7 @@ def edit_and_approve_report(session: Session, report_id: int, admin_id: int, rep
     session.add(AuditLog(report_id=report.id, admin_id=admin_id, action="edit_approve", before_text=before, after_text=after, note=note))
     session.commit()
     session.refresh(report)
+    recompute_for_report(session, report.id)
     return report
 
 
@@ -262,10 +267,14 @@ def update_own_pending_report(session: Session, report_id: int, user_id: int, re
     report.review_reason = "员工已修改，等待老板审核"
     session.commit()
     session.refresh(report)
+    recompute_for_report(session, report.id)
     return report
 
 
 def delete_own_pending_report(session: Session, report_id: int, user_id: int) -> None:
     report = _get_own_pending_report(session, report_id, user_id)
+    order_line_ids = {int(line.order_line_id) for line in report.lines if line.order_line_id}
     session.delete(report)
     session.commit()
+    for order_line_id in order_line_ids:
+        recompute_order_ledger(session, order_line_id)

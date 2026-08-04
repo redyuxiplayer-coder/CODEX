@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>补货查看</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260804-2">
+  <link rel="stylesheet" href="/static/app.css?v=20260804-3">
 </head>
 <body class="mobile">
 <main class="phone-card wide-phone">
@@ -59,6 +59,9 @@
           <span>已发 <b>{{ row.shipped }}</b></span>
           <span>还差 <b>{{ row.remaining }}</b></span>
           {% if row.over_shipped %}<span>超发 <b>{{ row.over_shipped }}</b></span>{% endif %}
+          {% if row.returned %}<span>已退 <b>{{ row.returned }}</b></span>{% endif %}
+          {% if row.adjusted %}<span>核销 <b>{{ row.adjusted }}</b></span>{% endif %}
+          {% if row.closed %}<span>关闭 <b>{{ row.closed }}</b></span>{% endif %}
         </div>
         <a class="button work-info-button" href="/mobile/work-info?company={{ row.company }}&product={{ row.product }}&style={{ row.style }}">包装/贴标</a>
       </article>

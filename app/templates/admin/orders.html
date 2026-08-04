@@ -31,7 +31,7 @@
   </div>
   {% endif %}
   <table>
-    <thead><tr><th>公司</th><th>产品</th><th>款式</th><th>订单</th><th>尺码</th><th>SKU</th><th>下单</th><th>已发</th><th>未发</th><th>超发</th><th>作业信息</th><th>备注</th><th>操作</th></tr></thead>
+    <thead><tr><th>公司</th><th>产品</th><th>款式</th><th>订单</th><th>尺码</th><th>SKU</th><th>下单</th><th>已发</th><th>未发</th><th>超发</th><th>退货/核销/关闭</th><th>作业信息</th><th>备注</th><th>操作</th></tr></thead>
     <tbody>
     {% for row in balances %}
       <tr class="{% if row.over_shipped %}danger{% endif %}">
@@ -57,6 +57,15 @@
         <td>{{ row.ordered }}</td>
         {% endif %}
         <td>{{ row.shipped }}</td><td>{{ row.remaining }}</td><td>{{ row.over_shipped }}</td>
+        {% if row.returned or row.adjusted or row.closed %}
+        <td>
+          {% if row.returned %}已退 {{ row.returned }}{% endif %}
+          {% if row.adjusted %}核销 {{ row.adjusted }}{% endif %}
+          {% if row.closed %}关闭 {{ row.closed }}{% endif %}
+        </td>
+        {% else %}
+        <td>—</td>
+        {% endif %}
         <td><a class="button mini-button" href="/admin/work-info?company={{ row.company }}&product={{ row.product }}&style={{ row.style }}">包装/贴标</a></td>
         {% if edit_mode %}
         <td><input form="orders-batch-form" name="notes" value="{{ row.note }}" placeholder="备注"></td>
@@ -64,6 +73,7 @@
         <td>{{ row.note }}</td>
         {% endif %}
         <td class="inline-actions">
+          <a class="button mini-button" href="/admin/order-lines/{{ row.order_id }}">处理</a>
           <form method="post" action="/admin/orders/{{ row.order_id }}/delete" class="inline-delete-form" id="delete-order-{{ row.order_id }}"></form>
           <button form="delete-order-{{ row.order_id }}" class="secondary">删除</button>
         </td>
