@@ -1,0 +1,130 @@
+body {
+  margin: 0;
+  background: #f5f7fa;
+  color: #303133;
+  font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+}
+
+.boot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #909399;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  height: 56px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.topbar .brand {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1d39c4;
+  white-space: nowrap;
+}
+
+.topbar nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.topbar a {
+  color: #606266;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.topbar a.router-link-active {
+  color: #1d39c4;
+  font-weight: 600;
+}
+
+.topbar .user {
+  color: #909399;
+  font-size: 13px;
+}
+
+.page {
+  padding: 20px 24px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.page-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.stat-cards {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 12px 18px;
+  min-width: 120px;
+}
+
+.stat-card .label {
+  color: #909399;
+  font-size: 13px;
+}
+
+.stat-card .value {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.section-card {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.section-card h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: #303133;
+}
+
+.muted {
+  color: #909399;
+  font-size: 13px;
+}
+
+.danger-text {
+  color: #f56c6c;
+  font-weight: 700;
+}
