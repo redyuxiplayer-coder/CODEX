@@ -15,6 +15,18 @@ def test_pages_render():
     assert "员工登录" in client.get("/mobile/login").text
 
 
+def test_admin_spa_served_when_built():
+    import pytest
+
+    spa_dir = BASE_DIR / "web" / "dist"
+    if not spa_dir.exists():
+        pytest.skip("web/dist 尚未构建")
+    client = TestClient(create_app())
+    response = client.get("/app/")
+    assert response.status_code == 200
+    assert 'id="app"' in response.text
+
+
 def test_login_locks_after_three_failed_attempts():
     client = TestClient(create_app())
 

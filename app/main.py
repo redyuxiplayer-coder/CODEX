@@ -335,6 +335,9 @@ def create_app() -> FastAPI:
     app.include_router(api_v1_router)
     app.state.login_failures = {}
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "app" / "static")), name="static")
+    spa_dir = BASE_DIR / "web" / "dist"
+    if spa_dir.exists():
+        app.mount("/app", StaticFiles(directory=str(spa_dir), html=True), name="app")
 
     @app.get("/health")
     def health() -> dict[str, str]:
