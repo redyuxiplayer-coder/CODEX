@@ -142,6 +142,7 @@ def submit_shipment_report(
     lines: list[dict],
     photo_paths: list[str] | None = None,
     note: str = "",
+    waybill_no: str = "",
 ) -> ShipmentReport:
     cleaned_lines = [
         {
@@ -164,6 +165,7 @@ def submit_shipment_report(
         company_name=company_name,
         product_name=canonical_product,
         style_name=canonical_style,
+        waybill_no=str(waybill_no or "").strip(),
         note=note,
         status=status,
         review_reason="；".join(reasons),

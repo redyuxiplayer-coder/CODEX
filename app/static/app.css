@@ -123,6 +123,9 @@ button.secondary { background: #6b7280; margin-top: 4px; }
 .inline-status-form { display: flex; gap: 6px; align-items: center; }
 .inline-status-form select { padding: 5px 8px; }
 .inline-status-form button { white-space: nowrap; }
+.inline-waybill-form { display: flex; gap: 6px; align-items: center; }
+.inline-waybill-form input { width: 150px; padding: 5px 8px; }
+.inline-waybill-form button { white-space: nowrap; }
 .file-line { display: grid; gap: 6px; color: #4b5563; font-size: 13px; }
 .file-line input { padding: 8px; background: #f8fafc; }
 .check-line { display: flex; align-items: center; gap: 8px; color: #9a3412; font-size: 13px; }

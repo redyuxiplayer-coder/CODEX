@@ -1048,7 +1048,13 @@ def create_app() -> FastAPI:
         return RedirectResponse("/admin/review", status_code=303)
 
     @app.get("/admin/shipments")
-    def admin_shipments(request: Request, company: str = "", page: int = 1, session: Session = Depends(get_session)):
+    def admin_shipments(
+        request: Request,
+        company: str = "",
+        waybill: str = "",
+        page: int = 1,
+        session: Session = Depends(get_session),
+    ):
         admin = current_user(request, session)
         if not admin:
             return RedirectResponse("/login", status_code=303)
@@ -1065,6 +1071,8 @@ def create_app() -> FastAPI:
         ]
         if company:
             query = query.filter(ShipmentReport.company_name == company)
+        if waybill.strip():
+            query = query.filter(ShipmentReport.waybill_no.contains(waybill.strip()))
         per_page = 10
         total = query.count()
         page = max(1, page)
@@ -1079,11 +1087,28 @@ def create_app() -> FastAPI:
                 "reports": reports,
                 "companies": companies,
                 "selected_company": company,
+                "waybill": waybill.strip(),
                 "page": page,
                 "total_pages": total_pages,
                 "total": total,
             },
         )
+
+    @app.post("/admin/shipments/{report_id}/waybill")
+    def admin_update_shipment_waybill(
+        request: Request,
+        report_id: int,
+        waybill_no: str = Form(""),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        report = session.get(ShipmentReport, report_id)
+        if report is None:
+            return RedirectResponse("/admin/shipments", status_code=303)
+        report.waybill_no = waybill_no.strip()
+        session.commit()
+        log_operation(session, admin.id, "waybill_update", str(report_id), waybill_no.strip())
+        return RedirectResponse("/admin/shipments", status_code=303)
 
     @app.post("/admin/shipments/{report_id}/photos")
     async def admin_upload_shipment_photos(
@@ -1492,6 +1517,7 @@ def create_app() -> FastAPI:
         order_line_ids: list[str] = Form([]),
         quantities: list[str] = Form([]),
         note: str = Form(""),
+        waybill_no: str = Form(""),
         session: Session = Depends(get_session),
     ):
         user = require_user(request, session)
@@ -1500,7 +1526,7 @@ def create_app() -> FastAPI:
             for index, (size, qty) in enumerate(zip(sizes, quantities))
             if size and qty
         ]
-        create_packing_draft(session, user.id, pack_date, company_name, product_name, style_name, lines, note, [])
+        create_packing_draft(session, user.id, pack_date, company_name, product_name, style_name, lines, note, [], waybill_no)
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.post("/mobile/today/{report_id}/update")
@@ -1511,6 +1537,7 @@ def create_app() -> FastAPI:
         order_line_ids: list[str] = Form([]),
         quantities: list[str] = Form([]),
         note: str = Form(""),
+        waybill_no: str = Form(""),
         session: Session = Depends(get_session),
     ):
         user = require_user(request, session)
@@ -1519,7 +1546,7 @@ def create_app() -> FastAPI:
             for index, (size, qty) in enumerate(zip(sizes, quantities))
             if size and qty
         ]
-        update_packing_draft(session, report_id, user.id, lines, note, [])
+        update_packing_draft(session, report_id, user.id, lines, note, [], waybill_no)
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.post("/mobile/today/{report_id}/delete")
@@ -1533,6 +1560,24 @@ def create_app() -> FastAPI:
         user = require_user(request, session)
         submit_packing_draft(session, report_id, user.id)
         return RedirectResponse("/mobile/today", status_code=303)
+
+    @app.get("/admin/packing/{draft_id}/print")
+    def admin_packing_print(request: Request, draft_id: int, session: Session = Depends(get_session)):
+        admin = require_admin(request, session)
+        draft = session.get(PackingDraft, draft_id)
+        if draft is None:
+            return RedirectResponse("/admin/shipments", status_code=303)
+        return templates.TemplateResponse("packing_print.html", {"request": request, "draft": draft})
+
+    @app.get("/mobile/packing/{draft_id}/print")
+    def mobile_packing_print(request: Request, draft_id: int, session: Session = Depends(get_session)):
+        user = require_user(request, session)
+        draft = session.get(PackingDraft, draft_id)
+        if draft is None:
+            return RedirectResponse("/mobile/report", status_code=303)
+        if user.role != "admin" and draft.user_id != user.id:
+            return RedirectResponse("/mobile/report", status_code=303)
+        return templates.TemplateResponse("packing_print.html", {"request": request, "draft": draft})
 
     @app.get("/mobile/orders")
     def mobile_orders(
@@ -1758,6 +1803,7 @@ def create_app() -> FastAPI:
         sizes: list[str] = Form([]),
         quantities: list[str] = Form([]),
         note: str = Form(""),
+        waybill_no: str = Form(""),
         photos: list[UploadFile] = File([]),
         session: Session = Depends(get_session),
     ):
@@ -1826,6 +1872,7 @@ def create_app() -> FastAPI:
         for path in paths:
             session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
         report.note = note.strip()
+        report.waybill_no = waybill_no.strip()
         report.status = "pending_review"
         report.review_reason = "员工提交更新，等待老板审核"
         after_lines = [{"size": line.size, "quantity": line.quantity} for line in report.lines]

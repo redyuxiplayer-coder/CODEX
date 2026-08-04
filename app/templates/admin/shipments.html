@@ -9,16 +9,23 @@
       <option value="{{ c }}" {% if selected_company==c %}selected{% endif %}>{{ c }}</option>
       {% endfor %}
     </select>
+    <input name="waybill" value="{{ waybill }}" placeholder="运单号搜索">
     <button>查询</button>
   </form>
   <table>
-    <thead><tr><th>日期</th><th>时间</th><th>员工</th><th>公司</th><th>产品</th><th>款式</th><th>尺码数量</th><th>审核状态</th><th>原因/处理</th><th>照片</th><th>备注</th></tr></thead>
+    <thead><tr><th>日期</th><th>时间</th><th>员工</th><th>公司</th><th>产品</th><th>款式</th><th>尺码数量</th><th>运单号</th><th>审核状态</th><th>原因/处理</th><th>照片</th><th>备注</th></tr></thead>
     <tbody>
     {% for r in reports %}
       <tr>
         <td>{{ r.ship_date }}</td><td>{{ r.created_at.strftime("%m-%d %H:%M") }}</td><td>{{ r.user.display_name }}</td><td>{{ r.company_name }}</td>
         <td>{{ r.product_name }}</td><td>{{ r.style_name }}</td>
         <td>{% for l in r.lines %}{{ l.size }} {{ l.quantity }}<br>{% endfor %}</td>
+        <td>
+          <form method="post" action="/admin/shipments/{{ r.id }}/waybill" class="inline-waybill-form">
+            <input name="waybill_no" value="{{ r.waybill_no or '' }}" placeholder="运单号">
+            <button>存</button>
+          </form>
+        </td>
         <td><span class="status {{ r.status }}">{{ shipment_status_label(r.status) }}</span></td>
         <td>{{ r.review_reason }}</td>
         <td>

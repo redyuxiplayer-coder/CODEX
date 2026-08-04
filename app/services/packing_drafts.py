@@ -5,6 +5,12 @@ from app.services.quantities import parse_quantity
 from app.services.shipments import submit_shipment_report
 
 
+def _next_package_no(session, pack_date: str) -> str:
+    count = session.query(PackingDraft).filter_by(pack_date=pack_date).count()
+    compact = str(pack_date or "").replace("-", "")
+    return f"PKG-{compact}-{count + 1:03d}"
+
+
 def _clean_lines(lines: list[dict]) -> list[dict]:
     cleaned = []
     for line in lines:
@@ -26,6 +32,7 @@ def create_packing_draft(
     lines: list[dict],
     note: str = "",
     photo_paths: list[str] | None = None,
+    waybill_no: str = "",
 ) -> PackingDraft:
     draft = PackingDraft(
         user_id=user_id,
@@ -33,6 +40,8 @@ def create_packing_draft(
         company_name=company_name,
         product_name=product_name,
         style_name=style_name,
+        package_no=_next_package_no(session, pack_date),
+        waybill_no=str(waybill_no or "").strip(),
         note=note,
     )
     session.add(draft)
@@ -69,6 +78,7 @@ def update_packing_draft(
     lines: list[dict],
     note: str = "",
     photo_paths: list[str] | None = None,
+    waybill_no: str | None = None,
 ) -> PackingDraft:
     draft = _get_own_draft(session, draft_id, user_id)
     for line in list(draft.lines):
@@ -86,6 +96,8 @@ def update_packing_draft(
     for path in photo_paths or []:
         session.add(PackingDraftPhoto(draft_id=draft.id, file_path=path, original_name=Path(path).name))
     draft.note = note
+    if waybill_no is not None:
+        draft.waybill_no = str(waybill_no).strip()
     session.commit()
     session.refresh(draft)
     return draft
@@ -110,6 +122,7 @@ def submit_packing_draft(session, draft_id: int, user_id: int):
         lines=lines,
         photo_paths=[photo.file_path for photo in draft.photos],
         note=draft.note,
+        waybill_no=draft.waybill_no or "",
     )
     draft.submitted_report_id = report.id
     for photo in report.photos:

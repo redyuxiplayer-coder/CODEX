@@ -40,6 +40,8 @@
       </div>
       <p class="hint">选好款式后填写尺码数量；多个数量用 <b>+</b> 连接，例如 60+60+45。</p>
       <div id="size-box"></div>
+      <label>运单号（可选）</label>
+      <input name="waybill_no" placeholder="例如 YT1234567890">
       <label>备注</label>
       <textarea name="note" rows="2"></textarea>
       <button>保存草稿</button>
@@ -53,7 +55,7 @@
       {% for d in drafts %}
         <article class="balance-item need-card">
           <div class="item-title">{{ d.company_name }} · {{ d.product_name }}</div>
-          <div class="item-sub">{{ d.style_name }} / 未上报</div>
+          <div class="item-sub">{{ d.style_name }} / 未上报{% if d.package_no %} / {{ d.package_no }}{% endif %}</div>
           <form method="post" action="/mobile/today/{{ d.id }}/update" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="draft-{{ d.id }}">
             {% for l in d.lines %}
             <div class="size-row">
@@ -65,6 +67,8 @@
               </div>
             </div>
             {% endfor %}
+            <label>运单号</label>
+            <input name="waybill_no" value="{{ d.waybill_no or '' }}" placeholder="例如 YT1234567890">
             <textarea name="note" rows="2" placeholder="备注">{{ d.note }}</textarea>
             {% if d.photos %}
             <div class="report-photos">
@@ -78,6 +82,7 @@
             <button>保存修改</button>
           </form>
           <div class="draft-actions">
+            <a class="button" href="/mobile/packing/{{ d.id }}/print">打印装箱单</a>
             <form method="post" action="/mobile/today/{{ d.id }}/submit">
               <button>确认无误，提交上报</button>
             </form>

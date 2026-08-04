@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>装箱单 {{ draft.package_no }}</title>
+  <style>
+    body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 32px; color: #111; }
+    h1 { font-size: 22px; margin: 0 0 14px; }
+    .actions { margin-bottom: 18px; }
+    .actions button { padding: 8px 18px; margin-right: 8px; font-size: 14px; }
+    table.meta { border-collapse: collapse; margin: 14px 0; }
+    table.meta td { padding: 5px 18px 5px 0; font-size: 15px; }
+    table.lines { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    table.lines th, table.lines td { border: 1px solid #333; padding: 8px 10px; text-align: left; }
+    table.lines th { background: #f1f5f9; }
+    .photos img { width: 140px; height: 140px; object-fit: cover; border: 1px solid #999; margin: 4px; }
+    .note { margin-top: 16px; white-space: pre-wrap; border-top: 1px dashed #999; padding-top: 10px; }
+    .sign { margin-top: 48px; display: flex; gap: 48px; }
+    .sign div { border-top: 1px solid #333; padding-top: 6px; width: 180px; text-align: center; }
+    @media print {
+      .actions { display: none; }
+      body { margin: 10mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="actions">
+    <button onclick="window.print()">打印</button>
+    <button onclick="history.back()">返回</button>
+  </div>
+  <h1>装箱单</h1>
+  <table class="meta">
+    <tr><td>箱号</td><td><b>{{ draft.package_no }}</b></td></tr>
+    <tr><td>日期</td><td>{{ draft.pack_date }}</td></tr>
+    <tr><td>公司</td><td>{{ draft.company_name }}</td></tr>
+    <tr><td>产品/款式</td><td>{{ draft.product_name }} / {{ draft.style_name }}</td></tr>
+    <tr><td>运单号</td><td>{{ draft.waybill_no or "—" }}</td></tr>
+    <tr><td>制单</td><td>{{ draft.user.display_name if draft.user else "—" }}</td></tr>
+  </table>
+  <table class="lines">
+    <thead><tr><th>尺码</th><th>数量</th></tr></thead>
+    <tbody>
+    {% for l in draft.lines %}
+      <tr><td>{{ l.size }}</td><td>{{ l.quantity }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if draft.photos %}
+  <div class="photos">
+    {% for p in draft.photos %}
+    <img src="/photos/draft/{{ p.id }}" alt="包照片{{ loop.index }}">
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if draft.note %}
+  <div class="note">备注：{{ draft.note }}</div>
+  {% endif %}
+  <div class="sign">
+    <div>打包</div>
+    <div>复核</div>
+    <div>日期</div>
+  </div>
+</body>
+</html>
