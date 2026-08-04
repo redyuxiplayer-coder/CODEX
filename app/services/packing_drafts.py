@@ -57,6 +57,8 @@ def _get_own_draft(session, draft_id: int, user_id: int) -> PackingDraft:
     draft = session.get(PackingDraft, draft_id)
     if draft is None or draft.user_id != user_id:
         raise ValueError("不能修改这条包货记录")
+    if draft.submitted_report_id is not None:
+        raise ValueError("已提交的包货记录不能修改")
     return draft
 
 
@@ -109,7 +111,9 @@ def submit_packing_draft(session, draft_id: int, user_id: int):
         photo_paths=[photo.file_path for photo in draft.photos],
         note=draft.note,
     )
-    session.delete(draft)
+    draft.submitted_report_id = report.id
+    for photo in report.photos:
+        photo.draft_id = draft.id
     session.commit()
     session.refresh(report)
     return report

@@ -64,6 +64,16 @@ def ensure_schema_updates() -> None:
         with engine.begin() as connection:
             if "order_line_id" not in columns:
                 connection.execute(text("ALTER TABLE packing_draft_lines ADD COLUMN order_line_id INTEGER"))
+    if "packing_drafts" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("packing_drafts")}
+        with engine.begin() as connection:
+            if "submitted_report_id" not in columns:
+                connection.execute(text("ALTER TABLE packing_drafts ADD COLUMN submitted_report_id INTEGER"))
+    if "shipment_photos" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("shipment_photos")}
+        with engine.begin() as connection:
+            if "draft_id" not in columns:
+                connection.execute(text("ALTER TABLE shipment_photos ADD COLUMN draft_id INTEGER"))
 
 
 def get_session() -> Iterator[Session]:

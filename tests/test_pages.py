@@ -701,6 +701,42 @@ def test_mobile_packing_draft_submit_keeps_order_line_id_on_shipment(db_session)
     app.dependency_overrides.clear()
 
 
+def test_mobile_report_hides_submitted_package_draft(db_session):
+    from app.db import get_session
+    from app.models import User
+    from app.services.orders import create_order_line
+    from app.services.packing_drafts import create_packing_draft, submit_packing_draft
+
+    worker = User(username="hidden_draft_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "艾润特", "裁判", "圆领裁判", "L", 1100)
+    draft = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-07-31",
+        "艾润特",
+        "裁判",
+        "圆领裁判",
+        [{"size": "L", "quantity": "100"}],
+        "待提交",
+        [],
+    )
+    submit_packing_draft(db_session, draft.id, worker.id)
+
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/report")
+
+    assert page.status_code == 200
+    assert f"/mobile/today/{draft.id}/update" not in page.text
+    assert f"/mobile/today/{draft.id}/submit" not in page.text
+    app.dependency_overrides.clear()
+
+
 def test_admin_can_upload_photos_to_shipment_report(db_session, tmp_path, monkeypatch):
     from app.db import get_session
     from app.models import ShipmentLine, ShipmentPhoto, ShipmentReport, User

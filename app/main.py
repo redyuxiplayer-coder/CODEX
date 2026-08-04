@@ -1158,7 +1158,11 @@ def create_app() -> FastAPI:
 
         drafts = (
             session.query(PackingDraft)
-            .filter_by(user_id=user.id, pack_date=today)
+            .filter(
+                PackingDraft.user_id == user.id,
+                PackingDraft.pack_date == today,
+                PackingDraft.submitted_report_id.is_(None),
+            )
             .order_by(PackingDraft.updated_at.desc(), PackingDraft.created_at.desc())
             .all()
         )

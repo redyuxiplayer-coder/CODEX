@@ -113,6 +113,7 @@ class ShipmentPhoto(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("shipment_reports.id"))
+    draft_id: Mapped[int | None] = mapped_column(ForeignKey("packing_drafts.id"), nullable=True, index=True)
     file_path: Mapped[str] = mapped_column(String(500))
     original_name: Mapped[str] = mapped_column(String(255), default="")
 
@@ -176,6 +177,7 @@ class PackingDraft(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    submitted_report_id: Mapped[int | None] = mapped_column(ForeignKey("shipment_reports.id"), nullable=True, index=True)
     pack_date: Mapped[str] = mapped_column(String(30), index=True)
     company_name: Mapped[str] = mapped_column(String(120), index=True)
     product_name: Mapped[str] = mapped_column(String(160), index=True)
