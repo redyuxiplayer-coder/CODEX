@@ -345,7 +345,7 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     def root():
-        return RedirectResponse("/admin")
+        return RedirectResponse("/app")
 
     @app.get("/login")
     def login_page(request: Request, session: Session = Depends(get_session)):

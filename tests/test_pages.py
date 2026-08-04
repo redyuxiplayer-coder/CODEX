@@ -27,6 +27,17 @@ def test_admin_spa_served_when_built():
     assert 'id="app"' in response.text
 
 
+def test_root_redirects_to_new_admin_spa():
+    import pytest
+
+    if not (BASE_DIR / "web" / "dist").exists():
+        pytest.skip("web/dist 尚未构建")
+    client = TestClient(create_app())
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code in {302, 307}
+    assert response.headers["location"] == "/app"
+
+
 def test_login_locks_after_three_failed_attempts():
     client = TestClient(create_app())
 
