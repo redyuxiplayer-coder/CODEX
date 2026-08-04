@@ -49,13 +49,16 @@ async function submit() {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: #f0f2f5;
+  background: #ffffff;
 }
 .login-card {
   width: 380px;
+  border: 1px solid #eceff3;
+  border-radius: 12px;
 }
 .login-card h1 {
   margin: 0 0 4px;
   font-size: 20px;
+  color: #111827;
 }
 </style>

@@ -1,8 +1,30 @@
+:root {
+  --el-color-primary: #2563eb;
+  --el-color-primary-light-3: #5b8def;
+  --el-color-primary-light-5: #8db1f4;
+  --el-color-primary-light-7: #c0d4f9;
+  --el-color-primary-light-8: #d9e5fb;
+  --el-color-primary-light-9: #eef3fe;
+  --el-color-primary-dark-2: #1e50bc;
+  --el-border-radius-base: 6px;
+  --el-border-color: #e5e7eb;
+  --el-border-color-light: #eef0f2;
+  --el-border-color-lighter: #f0f2f4;
+  --el-text-color-primary: #1f2329;
+  --el-text-color-regular: #3f4653;
+  --el-text-color-secondary: #6b7280;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  background: #f5f7fa;
-  color: #303133;
+  background: #ffffff;
+  color: #1f2329;
   font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .boot {
@@ -10,7 +32,8 @@ body {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  color: #909399;
+  color: #9ca3af;
+  font-size: 14px;
 }
 
 .app-shell {
@@ -22,53 +45,70 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 24px;
-  height: 56px;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  padding: 0 28px;
+  height: 60px;
+  background: #ffffff;
+  border-bottom: 1px solid #eceff3;
 }
 
 .topbar .brand {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
-  color: #1d39c4;
+  color: #111827;
+  letter-spacing: 0.2px;
   white-space: nowrap;
+}
+
+.topbar .brand::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  margin-right: 10px;
+  vertical-align: 1px;
 }
 
 .topbar nav {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 18px;
   flex-wrap: wrap;
 }
 
 .topbar a {
-  color: #606266;
+  color: #4b5563;
   text-decoration: none;
   font-size: 14px;
+  transition: color 0.15s ease;
+}
+
+.topbar a:hover {
+  color: #111827;
 }
 
 .topbar a.router-link-active {
-  color: #1d39c4;
+  color: #111827;
   font-weight: 600;
 }
 
 .topbar .user {
-  color: #909399;
+  color: #9ca3af;
   font-size: 13px;
 }
 
 .page {
-  padding: 20px 24px;
+  padding: 24px 28px 40px;
   max-width: 1440px;
   margin: 0 auto;
 }
 
 .page-title {
-  margin: 0 0 16px;
+  margin: 0 0 20px;
   font-size: 20px;
   font-weight: 700;
+  color: #111827;
 }
 
 .filter-bar {
@@ -76,55 +116,86 @@ body {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .stat-cards {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .stat-card {
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
-  padding: 12px 18px;
-  min-width: 120px;
+  background: #ffffff;
+  border: 1px solid #eceff3;
+  border-radius: 10px;
+  padding: 14px 20px;
+  min-width: 128px;
 }
 
 .stat-card .label {
-  color: #909399;
+  color: #9ca3af;
   font-size: 13px;
 }
 
 .stat-card .value {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
-  margin-top: 4px;
+  color: #111827;
+  margin-top: 6px;
+  line-height: 1.2;
 }
 
 .section-card {
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
-  padding: 16px 18px;
-  margin-bottom: 16px;
+  background: #ffffff;
+  border: 1px solid #eceff3;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
 }
 
 .section-card h2 {
-  margin: 0 0 12px;
-  font-size: 15px;
-  color: #303133;
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
 }
 
 .muted {
-  color: #909399;
+  color: #9ca3af;
   font-size: 13px;
 }
 
 .danger-text {
-  color: #f56c6c;
+  color: #ef4444;
   font-weight: 700;
+}
+
+/* Element Plus 白色简约化 */
+.el-table {
+  --el-table-border-color: #f0f2f4;
+  --el-table-header-bg-color: #fafbfc;
+  --el-table-header-text-color: #4b5563;
+  --el-table-row-hover-bg-color: #f8fafc;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+
+.el-card {
+  --el-card-border-color: #eceff3;
+}
+
+.el-button {
+  font-weight: 500;
+}
+
+.el-descriptions {
+  --el-descriptions-table-border: 1px solid #f0f2f4;
+}
+
+.el-descriptions__label {
+  color: #6b7280 !important;
 }
