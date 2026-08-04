@@ -19,8 +19,7 @@
   <section class="mobile-hero">
     <div>
       <h1>发货上报</h1>
-      <p>{{ today }} · 先保存草稿，确认无误后再提交给老板审核</p>
-      <p class="hint">本页会自动暂存文字和尺码；图片由老板在电脑端补传。</p>
+      <p>{{ today }} · 先保存草稿，确认无误后提交老板审核</p>
     </div>
   </section>
 
@@ -34,12 +33,10 @@
       <select name="product_name" id="product" required></select>
       <label>款式</label>
       <select name="style_name" id="style" required></select>
-      <p class="hint">选择款式后，每个尺码会显示下单、已发、还差，方便核对。</p>
-      <p class="hint">数量可以直接写加法，例如：60+60+60+45。</p>
+      <p class="hint">选好款式后填写尺码数量；多个数量用 <b>+</b> 连接，例如 60+60+45。</p>
       <div id="size-box"></div>
       <label>备注</label>
       <textarea name="note" rows="2"></textarea>
-      <p class="hint upload-status">点击保存后会显示“保存中，请稍等”。</p>
       <button>保存草稿</button>
     </form>
   </section>
@@ -57,20 +54,22 @@
             <div class="size-row">
               <input type="hidden" name="order_line_ids" value="{{ l.order_line_id or '' }}">
               <input name="sizes" value="{{ l.size }}" required>
-              <input name="quantities" type="text" inputmode="decimal" value="{{ l.quantity }}" placeholder="如 60+60+45" required>
+              <div class="qty-wrap">
+                <input name="quantities" type="text" inputmode="decimal" value="{{ l.quantity }}" placeholder="如 60+60+45" required>
+                <button type="button" class="plus-btn" aria-label="追加加号">+</button>
+              </div>
             </div>
             {% endfor %}
             <textarea name="note" rows="2" placeholder="备注">{{ d.note }}</textarea>
             {% if d.photos %}
             <div class="report-photos">
               {% for p in d.photos %}
-              <a href="/photos/draft/{{ p.id }}" target="_blank">
+              <a href="/photos/draft/{{ p.id }}" data-lightbox="draft-{{ d.id }}">
                 <img src="/photos/draft/{{ p.id }}" alt="草稿照片{{ loop.index }}">
               </a>
               {% endfor %}
             </div>
             {% endif %}
-            <p class="hint upload-status">保存中，请稍等。</p>
             <button>保存修改</button>
           </form>
           <div class="draft-actions">

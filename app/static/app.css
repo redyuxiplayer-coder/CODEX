@@ -73,6 +73,9 @@ button.secondary { background: #6b7280; margin-top: 4px; }
 .size-row label { font-weight: 700; }
 .balance-size-row { grid-template-columns: 80px 1fr; border: 1px solid #d9e0e8; border-radius: 8px; padding: 8px; background: #fff; }
 .balance-size-row .size-balance-hint { grid-column: 1 / -1; color: #475467; font-size: 13px; background: #f4f6f8; border-radius: 6px; padding: 7px; text-align: center; }
+.qty-wrap { display: flex; gap: 6px; align-items: stretch; }
+.qty-wrap input { min-width: 0; }
+.plus-btn { width: 46px; min-height: 46px; padding: 0; font-size: 22px; line-height: 1; flex: 0 0 46px; }
 .error { color: #b42318; background: #fff0f0; padding: 10px; border-radius: 6px; }
 .success { color: #176038; background: #eaf8f0; padding: 10px; border-radius: 6px; }
 .hint { color: #667085; font-size: 13px; }
@@ -83,6 +86,16 @@ button.secondary { background: #6b7280; margin-top: 4px; }
 .report-photos img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; }
 .report-photos span { overflow-wrap: anywhere; }
 .compact-photos { grid-template-columns: repeat(auto-fill, minmax(58px, 64px)); min-width: 140px; margin-top: 0; justify-content: center; }
+.lightbox { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(10, 14, 20, 0.92); align-items: center; justify-content: center; }
+.lightbox.open { display: flex; }
+.lightbox-image { max-width: 92vw; max-height: 86vh; object-fit: contain; border-radius: 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); transition: transform 0.2s ease; }
+.lightbox button { position: fixed; z-index: 101; width: 46px; height: 46px; padding: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.14); color: #fff; font-size: 20px; border: 1px solid rgba(255, 255, 255, 0.25); }
+.lightbox button:hover { background: rgba(255, 255, 255, 0.28); }
+.lightbox-close { top: 16px; right: 16px; font-size: 26px; }
+.lightbox-rotate { top: 16px; left: 16px; font-size: 24px; }
+.lightbox-prev { left: 14px; top: 50%; transform: translateY(-50%); }
+.lightbox-next { right: 14px; top: 50%; transform: translateY(-50%); }
+.lightbox-next:hover { transform: translateY(-50%); }
 .work-info-form { display: grid; gap: 18px; margin-top: 18px; }
 .work-info-rows { display: grid; gap: 16px; }
 .work-info-row { display: grid; grid-template-columns: 180px 1fr; gap: 12px; align-items: stretch; padding-top: 4px; }

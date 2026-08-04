@@ -56,7 +56,10 @@ function renderSizeRows(sizes, balanceBySize) {
     row.innerHTML = `
       <label>${size}</label>
       <input type="hidden" name="sizes" value="${size}">
-      <input name="quantities" type="text" inputmode="decimal" value="0" placeholder="如 60+60+45">
+      <div class="qty-wrap">
+        <input name="quantities" type="text" inputmode="decimal" value="0" placeholder="如 60+60+45">
+        <button type="button" class="plus-btn" aria-label="追加加号">+</button>
+      </div>
       <div class="size-balance-hint">下单 ${balance.ordered} / 已发 ${balance.shipped} / 还差 ${balance.remaining}${balance.over_shipped > 0 ? ` / 超发 ${balance.over_shipped}` : ""}</div>
     `;
     box.appendChild(row);
@@ -79,7 +82,10 @@ function renderOrderLineRows(lines) {
       <label>${escapeHtml(orderLabel)}</label>
       <input type="hidden" name="order_line_ids" value="${escapeHtml(line.order_line_id || "")}">
       <input type="hidden" name="sizes" value="${escapeHtml(line.size)}">
-      <input name="quantities" type="text" inputmode="decimal" value="0" placeholder="如 60+60+45">
+      <div class="qty-wrap">
+        <input name="quantities" type="text" inputmode="decimal" value="0" placeholder="如 60+60+45">
+        <button type="button" class="plus-btn" aria-label="追加加号">+</button>
+      </div>
       <div class="size-balance-hint">本单下单 ${line.ordered} / 已发 ${line.shipped} / 还差 ${line.remaining}${line.over_shipped > 0 ? ` / 超发 ${line.over_shipped}` : ""}</div>
     `;
     box.appendChild(row);
@@ -344,6 +350,83 @@ function setupReportDraftForms() {
   });
 }
 
+function setupQuantityPlusButtons() {
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest(".plus-btn");
+    if (!button) return;
+    const wrap = button.closest(".qty-wrap");
+    const input = wrap && wrap.querySelector('input[name="quantities"]');
+    if (!input) return;
+    event.preventDefault();
+    const current = input.value.trim();
+    input.value = current ? `${current}+` : "";
+    input.focus();
+  });
+}
+
+function setupPhotoLightbox() {
+  const overlay = document.createElement("div");
+  overlay.className = "lightbox";
+  overlay.innerHTML = `
+    <button type="button" class="lightbox-close" aria-label="关闭">&times;</button>
+    <button type="button" class="lightbox-rotate" aria-label="旋转90度">&#8635;</button>
+    <button type="button" class="lightbox-prev" aria-label="上一张">&#10094;</button>
+    <img class="lightbox-image" alt="">
+    <button type="button" class="lightbox-next" aria-label="下一张">&#10095;</button>
+  `;
+  document.body.appendChild(overlay);
+
+  let currentLinks = [];
+  let currentIndex = 0;
+  let rotation = 0;
+
+  const image = overlay.querySelector(".lightbox-image");
+  const close = () => {
+    overlay.classList.remove("open");
+    document.body.style.overflow = "";
+    rotation = 0;
+    image.style.transform = "";
+  };
+  const show = (index) => {
+    currentIndex = (index + currentLinks.length) % currentLinks.length;
+    image.src = currentLinks[currentIndex].getAttribute("href");
+    rotation = 0;
+    image.style.transform = "";
+  };
+
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest('a[data-lightbox]');
+    if (!link) return;
+    event.preventDefault();
+    const group = link.getAttribute("data-lightbox");
+    currentLinks = Array.from(document.querySelectorAll(`a[data-lightbox="${group}"]`));
+    currentIndex = currentLinks.indexOf(link);
+    overlay.classList.add("open");
+    document.body.style.overflow = "hidden";
+    show(currentIndex);
+  });
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.classList.contains("lightbox-close")) {
+      close();
+    } else if (event.target.classList.contains("lightbox-prev")) {
+      show(currentIndex - 1);
+    } else if (event.target.classList.contains("lightbox-next")) {
+      show(currentIndex + 1);
+    } else if (event.target.classList.contains("lightbox-rotate")) {
+      rotation = (rotation + 90) % 360;
+      image.style.transform = `rotate(${rotation}deg)`;
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (!overlay.classList.contains("open")) return;
+    if (event.key === "Escape") close();
+    if (event.key === "ArrowLeft") show(currentIndex - 1);
+    if (event.key === "ArrowRight") show(currentIndex + 1);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const company = document.getElementById("company");
   if (company) {
@@ -357,6 +440,8 @@ document.addEventListener("DOMContentLoaded", () => {
     renderSizeRows([], {});
   }
   setupReportDraftForms();
+  setupQuantityPlusButtons();
+  setupPhotoLightbox();
 
   const orderCompany = document.getElementById("order-company");
   if (!orderCompany) return;

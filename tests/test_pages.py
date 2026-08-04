@@ -530,7 +530,7 @@ def test_mobile_report_page_does_not_upload_photos():
     assert "单包照片" not in response.text
     assert 'type="file"' not in response.text
     assert 'name="photos"' not in response.text
-    assert "本页会自动暂存文字和尺码" in response.text
+    assert "先保存草稿，确认无误后提交老板审核" in response.text
     assert "照片" not in response.text
 
 
@@ -749,6 +749,79 @@ def test_mobile_report_hides_submitted_package_draft(db_session):
     assert page.status_code == 200
     assert f"/mobile/today/{draft.id}/update" not in page.text
     assert f"/mobile/today/{draft.id}/submit" not in page.text
+    app.dependency_overrides.clear()
+
+
+def test_mobile_report_draft_rows_have_plus_button(db_session):
+    from datetime import date
+
+    from app.db import get_session
+    from app.models import User
+    from app.services.orders import create_order_line
+    from app.services.packing_drafts import create_packing_draft
+
+    worker = User(username="plus_draft_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "艾润特", "裁判", "圆领裁判", "L", 1100)
+    create_packing_draft(
+        db_session,
+        worker.id,
+        date.today().isoformat(),
+        "艾润特",
+        "裁判",
+        "圆领裁判",
+        [{"size": "L", "quantity": "100"}],
+        "待提交",
+        [],
+    )
+
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/report")
+
+    assert page.status_code == 200
+    assert 'class="plus-btn"' in page.text or 'plus-btn' in page.text
+    app.dependency_overrides.clear()
+
+
+def test_mobile_my_reports_rows_have_plus_button_and_lightbox(db_session, tmp_path):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentPhoto, ShipmentReport, User
+
+    worker = User(username="plus_report_worker", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    photo = tmp_path / "package.png"
+    photo.write_bytes(b"photo")
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="pending_review",
+        review_reason="等待老板审核",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=report.id, size="S", quantity=50))
+    db_session.add(ShipmentPhoto(report_id=report.id, file_path=str(photo), original_name="package.png"))
+    db_session.commit()
+
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/my-reports")
+
+    assert page.status_code == 200
+    assert "plus-btn" in page.text
+    assert "data-lightbox" in page.text
     app.dependency_overrides.clear()
 
 

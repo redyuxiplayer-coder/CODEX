@@ -26,7 +26,7 @@
         {% if r.photos %}
         <div class="report-photos">
           {% for p in r.photos %}
-          <a href="/photos/shipment/{{ p.id }}" target="_blank">
+          <a href="/photos/shipment/{{ p.id }}" data-lightbox="report-{{ r.id }}">
             <img src="/photos/shipment/{{ p.id }}" alt="单包照片{{ loop.index }}">
           </a>
           {% endfor %}
@@ -39,7 +39,10 @@
           <div class="size-row">
             <input type="hidden" name="line_ids" value="{{ l.id }}">
             <input name="sizes" value="{{ l.size }}" required>
-            <input name="quantities" type="text" inputmode="decimal" value="{{ l.quantity }}" placeholder="如 60+60+45" required>
+            <div class="qty-wrap">
+              <input name="quantities" type="text" inputmode="decimal" value="{{ l.quantity }}" placeholder="如 60+60+45" required>
+              <button type="button" class="plus-btn" aria-label="追加加号">+</button>
+            </div>
           </div>
           {% endfor %}
           <label>备注</label>
@@ -54,5 +57,6 @@
     {% endfor %}
   </div>
 </main>
+<script src="/static/app.js"></script>
 </body>
 </html>

@@ -25,7 +25,7 @@
         <div class="item-title">{{ row.section_title }}</div>
         <div class="work-info-content">{{ row.content or "未填写" }}</div>
         {% if row.photo_path %}
-          <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" target="_blank">
+          <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" data-lightbox="work-info-{{ row.id }}">
             <img src="/photos/work-info/{{ row.id }}" alt="{{ row.section_title }}图片">
           </a>
         {% endif %}
@@ -51,7 +51,7 @@
           <div class="work-info-edit-cell">
             <textarea name="content" rows="3">{{ row.content }}</textarea>
             {% if row.photo_path %}
-              <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" target="_blank">
+              <a class="work-info-thumb" href="/photos/work-info/{{ row.id }}" data-lightbox="work-info-{{ row.id }}">
                 <img src="/photos/work-info/{{ row.id }}" alt="{{ row.section_title }}图片">
               </a>
             {% endif %}
@@ -82,5 +82,6 @@ function addMobileWorkInfoRow() {
   container.appendChild(row);
 }
 </script>
+<script src="/static/app.js"></script>
 </body>
 </html>

@@ -15,7 +15,7 @@
           {% if r.photos %}
             <div class="report-photos compact-photos">
             {% for p in r.photos %}
-              <a href="/photos/shipment/{{ p.id }}" target="_blank">
+              <a href="/photos/shipment/{{ p.id }}" data-lightbox="report-{{ r.id }}">
                 <img src="/photos/shipment/{{ p.id }}" alt="发货照片{{ loop.index }}">
               </a>
             {% endfor %}
@@ -49,7 +49,7 @@
           {% for row in proposal_rows(p) %}
             <b>{{ row.section_title }}</b>：{{ row.content }}<br>
             {% if row.photo_path %}
-              <a class="work-info-thumb" href="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}" target="_blank">
+<a class="work-info-thumb" href="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}" data-lightbox="work-info-proposal-{{ p.id }}">
                 <img src="/photos/work-info/proposal/{{ p.id }}/{{ loop.index0 }}" alt="{{ row.section_title }}图片">
               </a>
             {% endif %}
