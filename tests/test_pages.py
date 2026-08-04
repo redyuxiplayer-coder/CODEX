@@ -529,6 +529,48 @@ def test_mobile_my_reports_loads_more_pages(db_session):
     app.dependency_overrides.clear()
 
 
+def test_mobile_orders_recent_shipments_loads_more(db_session):
+    from datetime import datetime, timedelta
+
+    from app.db import get_session
+    from app.models import ShipmentReport, User
+
+    worker = User(username="orders_recent_worker", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    base = datetime(2026, 7, 1, 8, 0, 0)
+    for index in range(12):
+        db_session.add(
+            ShipmentReport(
+                user_id=worker.id,
+                ship_date=f"2026-07-{index + 1:02d}",
+                company_name="源兴发",
+                product_name="小红帽",
+                style_name=f"款式{index + 1}",
+                status="auto_approved",
+                review_reason="",
+                created_at=base + timedelta(minutes=index),
+            )
+        )
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/orders")
+
+    assert page.status_code == 200
+    assert "款式12 / 小杰 /" in page.text
+    assert "款式1 / 小杰 /" not in page.text
+    assert "加载更多" in page.text
+
+    partial = client.get("/mobile/orders?page=2&partial=1")
+    assert partial.status_code == 200
+    assert "款式1 / 小杰 /" in partial.text
+    app.dependency_overrides.clear()
+
+
 def test_worker_work_info_proposal_requires_admin_approval(db_session):
     from app.db import get_session
     from app.models import User
