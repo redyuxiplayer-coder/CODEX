@@ -34,11 +34,19 @@ async function doLogout() {
     <header class="topbar">
       <div class="brand">ZY服装发货管理系统</div>
       <nav>
+        <router-link to="/dashboard">首页</router-link>
+        <router-link to="/orders/new">新增订单</router-link>
         <router-link to="/orders">订单查询</router-link>
-        <a href="/admin/orders/new" target="_blank">新增订单</a>
-        <a href="/admin/review" target="_blank">待审核</a>
-        <a href="/admin/shipments" target="_blank">发货明细</a>
-        <a href="/admin/skus" target="_blank">SKU/条码</a>
+        <router-link to="/review">待审核</router-link>
+        <router-link to="/shipments">发货明细</router-link>
+        <router-link to="/daily-stats">每日统计</router-link>
+        <router-link to="/waybills">快递面单</router-link>
+        <router-link to="/skus">SKU/条码</router-link>
+        <router-link to="/work-info">作业信息</router-link>
+        <router-link to="/export">导出</router-link>
+        <router-link to="/goals">今日目标</router-link>
+        <router-link to="/users">账号管理</router-link>
+        <router-link to="/logs">操作日志</router-link>
         <span class="user">{{ user.display_name }}</span>
         <el-button size="small" @click="doLogout">退出</el-button>
       </nav>
