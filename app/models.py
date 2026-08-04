@@ -44,6 +44,7 @@ class OrderLine(Base):
     delivery_date: Mapped[str] = mapped_column(String(80), default="")
     note: Mapped[str] = mapped_column(Text, default="")
     batch: Mapped[str] = mapped_column(String(160), default="")
+    sku: Mapped[str] = mapped_column(String(255), default="", index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
@@ -59,6 +60,7 @@ class SkuMapping(Base):
     style_name: Mapped[str] = mapped_column(String(160), index=True)
     size: Mapped[str] = mapped_column(String(80), index=True)
     sku: Mapped[str] = mapped_column(String(255), default="")
+    barcode: Mapped[str] = mapped_column(String(255), default="", index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
@@ -86,6 +88,7 @@ class ShipmentReport(Base):
     company_name: Mapped[str] = mapped_column(String(120), index=True)
     product_name: Mapped[str] = mapped_column(String(160), index=True)
     style_name: Mapped[str] = mapped_column(String(160), index=True)
+    waybill_no: Mapped[str] = mapped_column(String(80), default="", index=True)
     note: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(40), default="pending_review", index=True)
     review_reason: Mapped[str] = mapped_column(Text, default="")
@@ -182,6 +185,8 @@ class PackingDraft(Base):
     company_name: Mapped[str] = mapped_column(String(120), index=True)
     product_name: Mapped[str] = mapped_column(String(160), index=True)
     style_name: Mapped[str] = mapped_column(String(160), index=True)
+    package_no: Mapped[str] = mapped_column(String(40), default="", index=True)
+    waybill_no: Mapped[str] = mapped_column(String(80), default="", index=True)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
@@ -249,3 +254,98 @@ class WorkInfoProposal(Base):
 
     user: Mapped[User] = relationship(foreign_keys=[user_id])
     reviewer: Mapped[User | None] = relationship(foreign_keys=[reviewed_by])
+
+
+class OrderLedgerEntry(Base):
+    """订单行流水：shipped/returned/adjusted/closed 各一条记录，由来源表重建。"""
+
+    __tablename__ = "order_ledger_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_line_id: Mapped[int] = mapped_column(ForeignKey("order_lines.id"), index=True)
+    movement_type: Mapped[str] = mapped_column(String(30), index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    ref_report_id: Mapped[int | None] = mapped_column(ForeignKey("shipment_reports.id"), nullable=True)
+    ref_return_id: Mapped[int | None] = mapped_column(ForeignKey("return_reworks.id"), nullable=True)
+    ref_adjustment_id: Mapped[int | None] = mapped_column(ForeignKey("order_adjustments.id"), nullable=True)
+    ref_close_id: Mapped[int | None] = mapped_column(ForeignKey("order_line_closes.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+    order_line: Mapped[OrderLine | None] = relationship()
+    creator: Mapped[User | None] = relationship()
+
+
+class ReturnRework(Base):
+    __tablename__ = "return_reworks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_line_id: Mapped[int] = mapped_column(ForeignKey("order_lines.id"), index=True)
+    report_id: Mapped[int | None] = mapped_column(ForeignKey("shipment_reports.id"), nullable=True, index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    reason_type: Mapped[str] = mapped_column(String(80), default="退回返工")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="pending_rework", index=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+    order_line: Mapped[OrderLine | None] = relationship()
+    report: Mapped[ShipmentReport | None] = relationship()
+    creator: Mapped[User | None] = relationship()
+    photos: Mapped[list["ReturnReworkPhoto"]] = relationship(cascade="all, delete-orphan")
+
+
+class ReturnReworkPhoto(Base):
+    __tablename__ = "return_rework_photos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    return_id: Mapped[int] = mapped_column(ForeignKey("return_reworks.id"), index=True)
+    file_path: Mapped[str] = mapped_column(String(500))
+    original_name: Mapped[str] = mapped_column(String(255), default="")
+
+
+class OrderAdjustment(Base):
+    """盘点/调整：少发核销、报废、盘亏等，扣减待发量。"""
+
+    __tablename__ = "order_adjustments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_line_id: Mapped[int] = mapped_column(ForeignKey("order_lines.id"), index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+    order_line: Mapped[OrderLine | None] = relationship()
+    creator: Mapped[User | None] = relationship()
+
+
+class OrderLineClose(Base):
+    """订单行关闭：客户不再要的余量，保留原订单与发货历史。"""
+
+    __tablename__ = "order_line_closes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_line_id: Mapped[int] = mapped_column(ForeignKey("order_lines.id"), index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+    order_line: Mapped[OrderLine | None] = relationship()
+    creator: Mapped[User | None] = relationship()
+
+
+class OrderLineComment(Base):
+    __tablename__ = "order_line_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_line_id: Mapped[int] = mapped_column(ForeignKey("order_lines.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+    order_line: Mapped[OrderLine | None] = relationship()
+    user: Mapped[User | None] = relationship()

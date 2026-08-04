@@ -74,6 +74,28 @@ def ensure_schema_updates() -> None:
         with engine.begin() as connection:
             if "draft_id" not in columns:
                 connection.execute(text("ALTER TABLE shipment_photos ADD COLUMN draft_id INTEGER"))
+    if "order_lines" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("order_lines")}
+        with engine.begin() as connection:
+            if "sku" not in columns:
+                connection.execute(text("ALTER TABLE order_lines ADD COLUMN sku VARCHAR(255) DEFAULT ''"))
+    if "sku_mappings" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("sku_mappings")}
+        with engine.begin() as connection:
+            if "barcode" not in columns:
+                connection.execute(text("ALTER TABLE sku_mappings ADD COLUMN barcode VARCHAR(255) DEFAULT ''"))
+    if "packing_drafts" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("packing_drafts")}
+        with engine.begin() as connection:
+            if "package_no" not in columns:
+                connection.execute(text("ALTER TABLE packing_drafts ADD COLUMN package_no VARCHAR(40) DEFAULT ''"))
+            if "waybill_no" not in columns:
+                connection.execute(text("ALTER TABLE packing_drafts ADD COLUMN waybill_no VARCHAR(80) DEFAULT ''"))
+    if "shipment_reports" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("shipment_reports")}
+        with engine.begin() as connection:
+            if "waybill_no" not in columns:
+                connection.execute(text("ALTER TABLE shipment_reports ADD COLUMN waybill_no VARCHAR(80) DEFAULT ''"))
 
 
 def get_session() -> Iterator[Session]:
