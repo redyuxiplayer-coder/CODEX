@@ -19,14 +19,42 @@ from app.services.adjustments import (
     list_adjustments,
     list_closes,
 )
+from app.services.daily_goals import get_daily_goals, set_daily_goals
+from app.services.daily_stats import daily_shipment_stats
 from app.services.ledger import order_line_totals
-from app.services.orders import get_order_balances
+from app.services.operation_logs import recent_operation_logs
+from app.services.orders import (
+    build_structured_note,
+    clean_order_lines_from_form,
+    create_order_lines_batch,
+    find_duplicate_order_lines,
+    get_order_balances,
+    get_order_choices,
+)
 from app.services.photos import save_uploads
 from app.services.returns import (
     create_return_rework,
     list_return_reworks,
     set_return_rework_status,
 )
+from app.services.users import create_worker_user, set_user_password, update_user_profile
+from app.services.waybills import (
+    import_waybill_directory,
+    list_waybill_photos,
+    save_waybill_uploads,
+    update_waybill_date,
+    waybill_display_name,
+)
+from app.services.work_info import (
+    approve_work_info_proposal,
+    get_work_info,
+    pending_work_info_proposals,
+    proposal_rows,
+    reject_work_info_proposal,
+    save_work_info,
+)
+from app.models import Company, OperationLog, WaybillPhoto
+from sqlalchemy import func
 
 router = APIRouter(prefix="/api/v1")
 
@@ -137,6 +165,46 @@ def _shipment_dict(report: ShipmentReport, line: ShipmentLine) -> dict:
         "quantity": line.quantity,
         "note": report.note,
         "waybill_no": report.waybill_no or "",
+    }
+
+
+def _report_dict(report: ShipmentReport) -> dict:
+    return {
+        "id": report.id,
+        "ship_date": report.ship_date,
+        "created_at": report.created_at.isoformat() if report.created_at else "",
+        "user": report.user.display_name if report.user else "",
+        "company": report.company_name,
+        "product": report.product_name,
+        "style": report.style_name,
+        "waybill_no": report.waybill_no or "",
+        "note": report.note,
+        "status": report.status,
+        "review_reason": report.review_reason,
+        "lines": [{"size": line.size, "quantity": line.quantity} for line in report.lines],
+        "photos": [{"id": photo.id} for photo in report.photos],
+    }
+
+
+def _proposal_dict(proposal) -> dict:
+    rows = []
+    for index, row in enumerate(proposal_rows(proposal)):
+        rows.append(
+            {
+                "row_index": index,
+                "section_title": row.get("section_title", ""),
+                "content": row.get("content", ""),
+                "has_photo": bool(row.get("photo_path")),
+            }
+        )
+    return {
+        "id": proposal.id,
+        "created_at": proposal.created_at.isoformat() if proposal.created_at else "",
+        "user": proposal.user.display_name if proposal.user else "",
+        "company": proposal.company_name,
+        "product": proposal.product_name,
+        "style": proposal.style_name,
+        "rows": rows,
     }
 
 
@@ -333,3 +401,569 @@ def api_add_comment(
         session.add(OrderLineComment(order_line_id=line_id, user_id=admin.id, content=content))
         session.commit()
     return _detail_payload(session, line_id)
+
+
+@router.get("/dashboard")
+def api_dashboard(request: Request, session: Session = Depends(get_session)):
+    require_admin(request, session)
+    from datetime import date
+
+    today = date.today().isoformat()
+    balances = get_order_balances(session)
+    pending = session.query(ShipmentReport).filter_by(status="pending_review").count()
+    today_reports = session.query(ShipmentReport).filter_by(ship_date=today).all()
+    today_total = sum(
+        line.quantity
+        for report in today_reports
+        if report.status in APPROVED_STATUSES
+        for line in report.lines
+    )
+    recent = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc()).limit(12).all()
+    return {
+        "today": today,
+        "today_total": today_total,
+        "pending": pending,
+        "unshipped_total": sum(max(0, row["remaining"]) for row in balances),
+        "over_total": sum(row["over_shipped"] for row in balances),
+        "recent": [_report_dict(report) for report in recent],
+    }
+
+
+@router.get("/orders/options")
+def api_orders_options(request: Request, session: Session = Depends(get_session)):
+    require_admin(request, session)
+    companies = [
+        name
+        for (name,) in session.query(Company.name)
+        .join(OrderLine, OrderLine.company_id == Company.id)
+        .filter(Company.is_active.is_(True), OrderLine.is_active.is_(True))
+        .distinct()
+        .order_by(Company.name)
+        .all()
+        if name
+    ]
+    return {"companies": companies, "choices": get_order_choices(session)}
+
+
+@router.post("/orders")
+def api_create_orders(
+    request: Request,
+    company_name: str = Form(...),
+    product_name: str = Form(...),
+    style_name: str = Form(...),
+    sizes: list[str] = Form([]),
+    quantities: list[str] = Form([]),
+    order_date: str = Form(""),
+    delivery_date: str = Form(""),
+    accessories: str = Form(""),
+    material: str = Form(""),
+    spec_size: str = Form(""),
+    note: str = Form(""),
+    confirm_duplicate: str = Form("0"),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    lines = clean_order_lines_from_form(sizes, quantities)
+    structured_note = build_structured_note(accessories, material, spec_size, note)
+    duplicates = find_duplicate_order_lines(session, company_name, product_name, style_name, order_date, lines)
+    if duplicates and confirm_duplicate != "1":
+        return {
+            "duplicates": [
+                {
+                    "company": order.company.name,
+                    "product": order.product_name,
+                    "style": order.style_name,
+                    "size": order.size,
+                    "quantity": order.quantity,
+                    "order_date": order.order_date,
+                }
+                for order in duplicates
+            ],
+            "created": 0,
+        }
+    created = create_order_lines_batch(
+        session,
+        company_name,
+        product_name,
+        style_name,
+        lines,
+        order_date,
+        delivery_date,
+        structured_note,
+    )
+    return {"created": len(created), "total": sum(line["quantity"] for line in lines), "duplicates": []}
+
+
+@router.get("/review/pending")
+def api_review_pending(request: Request, session: Session = Depends(get_session)):
+    require_admin(request, session)
+    reports = (
+        session.query(ShipmentReport)
+        .filter_by(status="pending_review")
+        .order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
+        .limit(50)
+        .all()
+    )
+    return {
+        "reports": [_report_dict(report) for report in reports],
+        "work_info_proposals": [_proposal_dict(proposal) for proposal in pending_work_info_proposals(session)],
+    }
+
+
+@router.post("/review/{report_id}/approve")
+def api_review_approve(
+    request: Request,
+    report_id: int,
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    from app.services.shipments import approve_report
+
+    approve_report(session, report_id, admin.id, note)
+    return {"ok": True}
+
+
+@router.post("/review/{report_id}/reject")
+def api_review_reject(
+    request: Request,
+    report_id: int,
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    from app.services.shipments import reject_report
+
+    reject_report(session, report_id, admin.id, note)
+    return {"ok": True}
+
+
+@router.post("/work-info/proposals/{proposal_id}/approve")
+def api_work_info_proposal_approve(
+    request: Request,
+    proposal_id: int,
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    approve_work_info_proposal(session, proposal_id, admin.id, note)
+    return {"ok": True}
+
+
+@router.post("/work-info/proposals/{proposal_id}/reject")
+def api_work_info_proposal_reject(
+    request: Request,
+    proposal_id: int,
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    reject_work_info_proposal(session, proposal_id, admin.id, note)
+    return {"ok": True}
+
+
+@router.get("/shipments")
+def api_shipments(
+    request: Request,
+    company: str = "",
+    waybill: str = "",
+    page: int = 1,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    query = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
+    companies = [
+        row[0]
+        for row in session.query(ShipmentReport.company_name).distinct().order_by(ShipmentReport.company_name).all()
+        if row[0]
+    ]
+    if company:
+        query = query.filter(ShipmentReport.company_name == company)
+    if waybill.strip():
+        query = query.filter(ShipmentReport.waybill_no.contains(waybill.strip()))
+    per_page = 10
+    total = query.count()
+    page = max(1, page)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    reports = query.offset((page - 1) * per_page).limit(per_page).all()
+    return {
+        "reports": [_report_dict(report) for report in reports],
+        "companies": companies,
+        "page": page,
+        "total_pages": total_pages,
+        "total": total,
+    }
+
+
+@router.post("/shipments/{report_id}/photos")
+async def api_shipment_photos(
+    request: Request,
+    report_id: int,
+    photos: list[UploadFile] = File([]),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    report = session.get(ShipmentReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="发货单不存在")
+    from datetime import date
+
+    try:
+        upload_date = date.fromisoformat(report.ship_date)
+    except ValueError:
+        upload_date = date.today()
+    paths = await save_uploads(
+        photos,
+        company_name=report.company_name,
+        style_name=report.style_name,
+        upload_date=upload_date,
+    )
+    from app.models import ShipmentPhoto
+
+    for path in paths:
+        session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]))
+    session.commit()
+    return {"ok": True, "uploaded": len(paths)}
+
+
+@router.post("/shipments/{report_id}/waybill")
+def api_shipment_waybill(
+    request: Request,
+    report_id: int,
+    waybill_no: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    report = session.get(ShipmentReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="发货单不存在")
+    report.waybill_no = waybill_no.strip()
+    session.commit()
+    return {"ok": True}
+
+
+@router.get("/skus")
+def api_skus(request: Request, q: str = "", session: Session = Depends(get_session)):
+    require_admin(request, session)
+    from app.services.skus import list_sku_mappings
+
+    return {
+        "mappings": [
+            {
+                "id": m.id,
+                "company": m.company_name,
+                "product": m.product_name,
+                "style": m.style_name,
+                "size": m.size,
+                "sku": m.sku,
+                "barcode": m.barcode,
+            }
+            for m in list_sku_mappings(session, q)
+        ]
+    }
+
+
+@router.post("/skus/{mapping_id}/update")
+def api_sku_update(
+    request: Request,
+    mapping_id: int,
+    company_name: str = Form(...),
+    product_name: str = Form(...),
+    style_name: str = Form(...),
+    size: str = Form(...),
+    sku: str = Form(...),
+    barcode: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    from app.services.skus import upsert_sku_mapping
+
+    upsert_sku_mapping(session, company_name, product_name, style_name, size, sku, barcode)
+    return {"ok": True}
+
+
+@router.post("/skus/import")
+async def api_sku_import(
+    request: Request,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    from app.config import EXPORT_DIR
+    from app.services.skus import import_sku_mappings_from_excel
+
+    target = EXPORT_DIR / f"sku_{file.filename}"
+    target.write_bytes(await file.read())
+    try:
+        result = import_sku_mappings_from_excel(session, target)
+        return {"imported": result["imported"], "skipped": result["skipped"]}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/daily-stats")
+def api_daily_stats(request: Request, ship_date: str = "", session: Session = Depends(get_session)):
+    require_admin(request, session)
+    from datetime import date
+
+    target = ship_date or date.today().isoformat()
+    rows = daily_shipment_stats(session, target)
+    return {"ship_date": target, "rows": rows, "total": sum(row["quantity"] for row in rows)}
+
+
+@router.get("/goals")
+def api_goals(request: Request, goal_date: str = "", session: Session = Depends(get_session)):
+    require_admin(request, session)
+    from datetime import date
+
+    target = goal_date or date.today().isoformat()
+    goals = get_daily_goals(session, target)
+    return {"goal_date": target, "goal_text": "\n".join(goal.content for goal in goals)}
+
+
+@router.post("/goals")
+def api_save_goals(
+    request: Request,
+    goal_date: str = Form(...),
+    goal_text: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    set_daily_goals(session, goal_date, goal_text.splitlines(), admin.id)
+    return {"ok": True}
+
+
+@router.get("/users")
+def api_users(request: Request, session: Session = Depends(get_session)):
+    require_admin(request, session)
+    users = session.query(User).order_by(User.role, User.username).all()
+    return {
+        "users": [
+            {
+                "id": u.id,
+                "username": u.username,
+                "display_name": u.display_name,
+                "role": u.role,
+                "is_active": u.is_active,
+            }
+            for u in users
+        ]
+    }
+
+
+@router.post("/users")
+def api_create_user(
+    request: Request,
+    username: str = Form(...),
+    display_name: str = Form(...),
+    password: str = Form(...),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    try:
+        create_worker_user(session, username, display_name, password)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/users/{user_id}/password")
+def api_user_password(
+    request: Request,
+    user_id: int,
+    password: str = Form(...),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    try:
+        set_user_password(session, user_id, password)
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/users/{user_id}/update")
+def api_user_update(
+    request: Request,
+    user_id: int,
+    username: str = Form(...),
+    display_name: str = Form(...),
+    role: str = Form(...),
+    is_active: str = Form("0"),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    try:
+        update_user_profile(
+            session,
+            user_id,
+            username=username,
+            display_name=display_name,
+            role=role,
+            is_active=is_active == "1",
+        )
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/logs")
+def api_logs(request: Request, session: Session = Depends(get_session)):
+    require_admin(request, session)
+    return {
+        "logs": [
+            {
+                "id": log.id,
+                "created_at": log.created_at.isoformat() if log.created_at else "",
+                "actor": log.actor.display_name if log.actor else "",
+                "action": log.action,
+                "target": log.target,
+                "detail": log.detail,
+            }
+            for log in recent_operation_logs(session)
+        ]
+    }
+
+
+@router.get("/waybills")
+def api_waybills(request: Request, session: Session = Depends(get_session)):
+    require_admin(request, session)
+    companies = sorted({row.name for row in session.query(Company).filter(Company.is_active.is_(True)).all()})
+    counts = [
+        {"company": company, "count": count}
+        for company, count in session.query(WaybillPhoto.company_name, func.count(WaybillPhoto.id))
+        .group_by(WaybillPhoto.company_name)
+        .order_by(WaybillPhoto.company_name)
+        .all()
+    ]
+    photos = [
+        {
+            "id": photo.id,
+            "company": photo.company_name,
+            "waybill_date": photo.waybill_date,
+            "display_name": waybill_display_name(photo),
+        }
+        for photo in list_waybill_photos(session)
+    ]
+    return {"companies": companies, "counts": counts, "photos": photos}
+
+
+@router.post("/waybills/upload")
+async def api_waybill_upload(
+    request: Request,
+    company: str = Form(...),
+    waybill_date: str = Form(""),
+    files: list[UploadFile] = File([]),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    result = await save_waybill_uploads(session, company, files, uploaded_by=admin.id, waybill_date=waybill_date)
+    return {"imported": result["imported"], "skipped": result["skipped"]}
+
+
+@router.post("/waybills/{photo_id}/date")
+def api_waybill_date(
+    request: Request,
+    photo_id: int,
+    waybill_date: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    update_waybill_date(session, photo_id, waybill_date)
+    return {"ok": True}
+
+
+@router.get("/work-info")
+def api_work_info(
+    request: Request,
+    company: str = "",
+    product: str = "",
+    style: str = "",
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    rows = get_work_info(session, company, product, style)
+    return {
+        "company": company,
+        "product": product,
+        "style": style,
+        "rows": [
+            {
+                "id": row["id"],
+                "section_key": row["section_key"],
+                "section_title": row["section_title"],
+                "content": row["content"],
+                "photo_path": row["photo_path"] or "",
+                "original_name": row["original_name"] or "",
+                "is_custom": bool(row["is_custom"]),
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/work-info")
+async def api_save_work_info(
+    request: Request,
+    company_name: str = Form(...),
+    product_name: str = Form(...),
+    style_name: str = Form(...),
+    section_key: list[str] = Form([]),
+    section_title: list[str] = Form([]),
+    content: list[str] = Form([]),
+    existing_photo_path: list[str] = Form([]),
+    existing_original_name: list[str] = Form([]),
+    remove_photo: list[str] = Form([]),
+    photo_accessories: UploadFile | None = File(None),
+    photo_bag: UploadFile | None = File(None),
+    photo_wash_label: UploadFile | None = File(None),
+    photo_sticker: UploadFile | None = File(None),
+    custom_photos: list[UploadFile] = File([]),
+    photos: list[UploadFile] = File([]),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    fixed_photos = {
+        "accessories": photo_accessories,
+        "bag": photo_bag,
+        "wash_label": photo_wash_label,
+        "sticker": photo_sticker,
+    }
+    saved_fixed = {
+        key: (await save_uploads([file]))[0]
+        for key, file in fixed_photos.items()
+        if file is not None and file.filename
+    }
+    saved_custom = await save_uploads(custom_photos)
+    fallback_photos = await save_uploads(photos)
+    custom_index = 0
+    rows = []
+    for index, (key, title, value) in enumerate(zip(section_key, section_title, content)):
+        is_custom = key == "custom" or key.startswith("custom:")
+        photo_path = existing_photo_path[index] if index < len(existing_photo_path) else ""
+        original_name = existing_original_name[index] if index < len(existing_original_name) else ""
+        if index < len(remove_photo) and remove_photo[index] == "1":
+            photo_path = ""
+            original_name = ""
+        if key in saved_fixed:
+            photo_path = saved_fixed[key]
+            original_name = fixed_photos[key].filename or ""
+        elif is_custom and custom_index < len(saved_custom):
+            photo_path = saved_custom[custom_index]
+            original_name = custom_photos[custom_index].filename or ""
+            custom_index += 1
+        elif index < len(fallback_photos):
+            photo_path = fallback_photos[index]
+            original_name = photos[index].filename if index < len(photos) and photos[index].filename else ""
+        rows.append(
+            {
+                "section_key": key,
+                "section_title": title,
+                "content": value,
+                "photo_path": photo_path,
+                "original_name": original_name,
+            }
+        )
+    save_work_info(session, company_name, product_name, style_name, rows, updated_by=admin.id)
+    return {"ok": True}
