@@ -12,7 +12,6 @@ import Export from "./views/Export.vue";
 import Goals from "./views/Goals.vue";
 import Users from "./views/Users.vue";
 import Logs from "./views/Logs.vue";
-import Waybills from "./views/Waybills.vue";
 import WorkInfo from "./views/WorkInfo.vue";
 import Logistics from "./views/Logistics.vue";
 
@@ -31,7 +30,6 @@ const routes = [
   { path: "/goals", component: Goals },
   { path: "/users", component: Users },
   { path: "/logs", component: Logs },
-  { path: "/waybills", component: Waybills },
   { path: "/logistics", component: Logistics },
   { path: "/work-info", component: WorkInfo },
 ];
