@@ -1107,10 +1107,10 @@ def test_admin_can_upload_photos_to_shipment_report(db_session, tmp_path, monkey
         follow_redirects=False,
     )
 
-      assert response.status_code == 303
-      assert db_session.query(ShipmentPhoto).count() == 2
-      assert len(list(tmp_path.glob("源兴发/2026-07-18_源兴发_小红帽男款_*.png"))) == 2
-      app.dependency_overrides.clear()
+    assert response.status_code == 303
+    assert db_session.query(ShipmentPhoto).count() == 2
+    assert len(list(tmp_path.glob("源兴发/2026-07-18_源兴发_小红帽男款_*.png"))) == 2
+    app.dependency_overrides.clear()
 
 
 def test_admin_shipments_filters_by_company_not_review_status(db_session):
