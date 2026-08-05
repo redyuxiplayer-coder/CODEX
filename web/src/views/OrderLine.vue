@@ -259,12 +259,13 @@ async function addComment() {
         <p v-else class="muted" style="margin:0 0 14px">还没有调整记录。</p>
         <el-form inline>
           <el-form-item label="数量">
-            <el-input-number v-model="adjustForm.quantity" :min="1" />
+            <el-input-number v-model="adjustForm.quantity" />
           </el-form-item>
           <el-form-item label="原因">
             <el-select v-model="adjustForm.reason" style="width:150px">
               <el-option label="盘点" value="盘点" />
               <el-option label="少发核销" value="少发核销" />
+              <el-option label="超发核销" value="超发核销" />
               <el-option label="报废" value="报废" />
               <el-option label="其他" value="其他" />
             </el-select>
