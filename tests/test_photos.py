@@ -72,41 +72,10 @@ def test_save_uploads_rejects_files_that_are_not_real_images(tmp_path, monkeypat
     assert list(tmp_path.iterdir()) == []
 
 
-def test_save_uploads_returns_cloud_path_and_schedules_local_backup_when_supabase_is_configured(tmp_path, monkeypatch):
+def test_save_uploads_always_saves_local_even_when_supabase_is_configured(tmp_path, monkeypatch):
     monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "secret")
-    uploaded = []
-    backups = []
-
-    def fake_upload(bucket, object_name, data, content_type):
-        uploaded.append((bucket, object_name, data, content_type))
-
-    monkeypatch.setattr(photo_service, "upload_file_to_supabase_storage", fake_upload)
-    monkeypatch.setattr(photo_service, "schedule_cloud_backup_to_local", lambda storage_path, base_name: backups.append((storage_path, base_name)))
-    upload = ChunkedUpload("box.jpg", JPG_BYTES)
-
-    paths = asyncio.run(
-        save_uploads([upload], company_name="源兴发", style_name="小红帽男款", upload_date=date(2026, 7, 30))
-    )
-
-    digest = hashlib.sha1("2026-07-30_源兴发_小红帽男款_01.jpg".encode("utf-8")).hexdigest()[:12]
-    object_name = f"2026-07-30_photo_01_{digest}.jpg"
-    assert paths == [f"storage://shipment-uploads/{object_name}"]
-    assert uploaded == [("shipment-uploads", object_name, JPG_BYTES, "image/jpeg")]
-    assert backups == [(f"storage://shipment-uploads/{object_name}", "2026-07-30_源兴发_小红帽男款_01.jpg")]
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_save_uploads_falls_back_to_local_path_when_supabase_upload_fails(tmp_path, monkeypatch):
-    monkeypatch.setattr(photo_service, "UPLOAD_DIR", tmp_path)
-    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "secret")
-
-    def fail_upload(bucket, object_name, data, content_type):
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr(photo_service, "upload_file_to_supabase_storage", fail_upload)
     upload = ChunkedUpload("box.jpg", JPG_BYTES)
 
     paths = asyncio.run(
@@ -114,6 +83,7 @@ def test_save_uploads_falls_back_to_local_path_when_supabase_upload_fails(tmp_pa
     )
 
     assert len(paths) == 1
+    assert not paths[0].startswith("storage://")
     assert paths[0].endswith("2026-07-30_源兴发_小红帽男款_01.jpg")
     assert Path(paths[0]).read_bytes() == JPG_BYTES
 

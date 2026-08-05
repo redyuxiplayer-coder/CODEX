@@ -1,8 +1,5 @@
 from pathlib import Path
-import hashlib
-import mimetypes
 import os
-import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,7 +13,6 @@ from app.config import THUMBNAIL_DIR
 
 ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 UPLOAD_CHUNK_SIZE = 1024 * 1024
-SUPABASE_UPLOAD_BUCKET = "shipment-uploads"
 THUMBNAIL_MAX_SIDE = 120
 THUMBNAIL_QUALITY = 80
 
@@ -55,36 +51,6 @@ def unique_target(base_name: str) -> Path:
         if not candidate.exists():
             return candidate
         index += 1
-
-
-def supabase_storage_configured() -> bool:
-    return bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY"))
-
-
-def build_supabase_object_name(base_name: str) -> str:
-    digest = hashlib.sha1(base_name.encode("utf-8")).hexdigest()[:12]
-    suffix = Path(base_name).suffix.lower() or ".bin"
-    date_prefix = base_name.split("_", 1)[0]
-    index_part = Path(base_name).stem.rsplit("_", 1)[-1]
-    if not index_part.isdigit():
-        index_part = "01"
-    return f"{date_prefix}_photo_{int(index_part):02d}_{digest}{suffix}"
-
-
-def upload_file_to_supabase_storage(bucket: str, object_name: str, data: bytes, content_type: str) -> None:
-    supabase_url = os.environ["SUPABASE_URL"].rstrip("/")
-    service_key = os.environ["SUPABASE_SERVICE_KEY"]
-    quoted_name = "/".join(urllib.parse.quote(part, safe="") for part in object_name.split("/"))
-    endpoint = f"{supabase_url}/storage/v1/object/{bucket}/{quoted_name}"
-    headers = {
-        "apikey": service_key,
-        "Authorization": f"Bearer {service_key}",
-        "Content-Type": content_type,
-        "x-upsert": "true",
-    }
-    request = urllib.request.Request(endpoint, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=60) as response:
-        response.read()
 
 
 def parse_storage_path(path: str) -> tuple[str, str]:
@@ -158,35 +124,6 @@ def ensure_thumbnail(source_path: str) -> Path:
     return target
 
 
-def backup_supabase_file_to_local(storage_path: str, base_name: str) -> None:
-    data, _content_type = download_file_from_supabase_storage(storage_path)
-    save_local_upload(base_name, data)
-
-
-def schedule_cloud_backup_to_local(storage_path: str, base_name: str) -> None:
-    if os.getenv("VERCEL"):
-        return
-    thread = threading.Thread(target=backup_supabase_file_to_local, args=(storage_path, base_name), daemon=True)
-    thread.start()
-
-
-def maybe_upload_to_supabase(base_name: str, data: bytes) -> str | None:
-    if not supabase_storage_configured():
-        return None
-    object_name = build_supabase_object_name(base_name)
-    content_type = mimetypes.guess_type(base_name)[0] or "application/octet-stream"
-    try:
-        upload_file_to_supabase_storage(SUPABASE_UPLOAD_BUCKET, object_name, data, content_type)
-    except Exception:
-        return None
-    storage_path = f"storage://{SUPABASE_UPLOAD_BUCKET}/{object_name}"
-    try:
-        schedule_cloud_backup_to_local(storage_path, base_name)
-    except Exception:
-        pass
-    return storage_path
-
-
 async def save_uploads(
     files: list[UploadFile],
     *,
@@ -209,6 +146,5 @@ async def save_uploads(
         else:
             base_name = f"{uuid4().hex}{suffix}"
         data = await read_valid_upload_data(file, suffix)
-        cloud_path = maybe_upload_to_supabase(base_name, data)
-        saved.append(cloud_path or save_local_upload(base_name, data))
+        saved.append(save_local_upload(base_name, data))
     return saved
