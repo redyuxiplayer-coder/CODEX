@@ -121,3 +121,7 @@ CREATE TABLE IF NOT EXISTS waybill_records (
 
 ;
 CREATE UNIQUE INDEX IF NOT EXISTS ix_waybill_records_waybill_no ON waybill_records (waybill_no);
+-- 注意：以 postgres 管理员建的表/序列，应用账号需要单独授权：
+-- GRANT ALL PRIVILEGES ON TABLE waybill_records TO <应用账号>;
+-- GRANT ALL PRIVILEGES ON SEQUENCE waybill_records_id_seq TO <应用账号>;
+-- （应用账号从 .env 的 SUPABASE_DATABASE_URL 中读取，如 zy_shipping）
