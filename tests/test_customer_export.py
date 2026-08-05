@@ -50,3 +50,20 @@ def test_customer_export_uses_waybill_number_and_detail_sheet(db_session, tmp_pa
     assert detail_row[0] == "2026-07-17"
     assert detail_row[5] == 50
     assert detail_row[6] == "800209579798"
+
+
+def test_internal_export_shows_waybill_number_not_photos(db_session, tmp_path: Path):
+    from app.services.exports import export_company_workbook
+
+    _setup(db_session)
+    output = tmp_path / "茉莉内部版.xlsx"
+
+    export_company_workbook(db_session, "广东茉莉", output)
+
+    wb = load_workbook(output)
+    ws = wb["订单发货明细"]
+    headers = [cell.value for cell in ws[1]]
+    assert "快递单号" in headers
+    assert "快递面单" not in headers
+    rows = [[cell.value for cell in row] for row in ws.iter_rows(min_row=2)]
+    assert any(row[-1] == "800209579798" for row in rows)

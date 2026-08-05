@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
@@ -9,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.models import ShipmentReport
 from app.services.aliases import canonical_item
 from app.services.orders import get_order_balances
-from app.services.waybills import get_waybill_photos, waybill_display_name
 
 
 def style_sheet(ws) -> None:
@@ -175,15 +173,22 @@ def waybill_numbers_by_balance_row(session: Session, balances: list[dict]) -> di
     }
 
 
-def add_balance_sheet(wb: Workbook, title: str, balances: list[dict], shipment_details: dict[object, str] | None = None) -> None:
+def add_balance_sheet(
+    wb: Workbook,
+    title: str,
+    balances: list[dict],
+    shipment_details: dict[object, str] | None = None,
+    waybill_numbers: dict[object, str] | None = None,
+) -> None:
     ws = wb.create_sheet(title)
     shipment_details = shipment_details or {}
-    ws.append(["公司", "产品", "款式", "订单", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量", "超发数量"])
+    waybill_numbers = waybill_numbers or {}
+    ws.append(["公司", "产品", "款式", "订单", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量", "超发数量", "快递单号"])
     for row in balances:
         key = _balance_detail_key(row)
         ws.append([
             row["company"], row["product"], row["style"], row.get("order_ref", ""), row["size"], row.get("sku", ""), shipment_details.get(key, ""),
-            row["ordered"], row["shipped"], row["remaining"], row["over_shipped"],
+            row["ordered"], row["shipped"], row["remaining"], row["over_shipped"], waybill_numbers.get(key, ""),
         ])
     style_sheet(ws)
     return ws
@@ -207,28 +212,6 @@ def add_customer_balance_sheet(
         ])
     style_sheet(ws)
     return ws
-
-
-def add_waybill_images_to_sheet(ws, photos) -> None:
-    ws["L1"] = "快递面单"
-    ws["L1"].font = Font(bold=True)
-    ws["L1"].fill = PatternFill("solid", fgColor="D9EAF7")
-    ws["L1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.column_dimensions["L"].width = 22
-    ws.column_dimensions["M"].width = 42
-    row = 2
-    for photo in photos:
-        path = Path(photo.stored_path)
-        if not path.exists():
-            continue
-        ws.cell(row, 12, waybill_display_name(photo))
-        ws.cell(row, 12).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        image = ExcelImage(str(path))
-        image.width = 300
-        image.height = 180
-        ws.add_image(image, f"M{row}")
-        ws.row_dimensions[row].height = 138
-        row += 9
 
 
 def shipment_rows(session: Session, ship_date: str | None = None, company_name: str | None = None, user_id: int | None = None):
@@ -298,9 +281,10 @@ def export_total_workbook(session: Session, output_path: Path) -> Path:
     wb.remove(wb.active)
     balances = get_order_balances(session)
     shipment_details = shipment_details_by_balance_row(session, balances)
-    add_balance_sheet(wb, "订单发货明细", balances, shipment_details)
+    waybill_numbers = waybill_numbers_by_balance_row(session, balances)
+    add_balance_sheet(wb, "订单发货明细", balances, shipment_details, waybill_numbers)
     add_shipments_sheet(wb, session)
-    add_balance_sheet(wb, "未发货明细", [row for row in balances if row["remaining"] > 0], shipment_details)
+    add_balance_sheet(wb, "未发货明细", [row for row in balances if row["remaining"] > 0], shipment_details, waybill_numbers)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
     return output_path
@@ -327,7 +311,13 @@ def export_unshipped_workbook(session: Session, output_path: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
     balances = get_order_balances(session)
-    add_balance_sheet(wb, "未发货明细", [row for row in balances if row["remaining"] > 0], shipment_details_by_balance_row(session, balances))
+    add_balance_sheet(
+        wb,
+        "未发货明细",
+        [row for row in balances if row["remaining"] > 0],
+        shipment_details_by_balance_row(session, balances),
+        waybill_numbers_by_balance_row(session, balances),
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
     return output_path
@@ -337,8 +327,13 @@ def export_company_workbook(session: Session, company_name: str, output_path: Pa
     wb = Workbook()
     wb.remove(wb.active)
     balances = get_order_balances(session, company_name=company_name)
-    ws = add_balance_sheet(wb, "订单发货明细", balances, shipment_details_by_balance_row(session, balances))
-    add_waybill_images_to_sheet(ws, get_waybill_photos(session, company_name))
+    add_balance_sheet(
+        wb,
+        "订单发货明细",
+        balances,
+        shipment_details_by_balance_row(session, balances),
+        waybill_numbers_by_balance_row(session, balances),
+    )
     add_shipments_sheet(wb, session, company_name=company_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)

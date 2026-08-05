@@ -61,7 +61,7 @@ def test_import_waybill_directory_skips_duplicate_file_content(db_session, tmp_p
     assert db_session.query(WaybillPhoto).count() == 1
 
 
-def test_company_export_embeds_only_waybill_photos(db_session, tmp_path: Path):
+def test_company_export_uses_waybill_number_column_not_photos(db_session, tmp_path: Path):
     user = User(username="admin", display_name="老板", password_hash="x", role="admin", is_active=True)
     db_session.add(user)
     db_session.commit()
@@ -84,9 +84,10 @@ def test_company_export_embeds_only_waybill_photos(db_session, tmp_path: Path):
     export_company_workbook(db_session, "源兴发", output)
 
     ws = load_workbook(output)["订单发货明细"]
-    assert ws["L1"].value == "快递面单"
-    assert ws["L2"].value == "2026-07-13 面单"
-    assert len(ws._images) == 1
+    headers = [cell.value for cell in ws[1]]
+    assert "快递单号" in headers
+    assert "快递面单" not in headers
+    assert len(ws._images) == 0
 
 
 def test_waybill_display_name_uses_file_date_before_original_name(db_session, tmp_path: Path):
