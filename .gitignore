@@ -5,7 +5,6 @@ __pycache__/
 venv/
 node_modules/
 web/.vite/
-web/dist/
 
 data/
 output/
