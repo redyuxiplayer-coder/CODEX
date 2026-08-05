@@ -23,7 +23,10 @@ from app.config import UPLOAD_DIR  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.models import (  # noqa: E402
     PackingDraftPhoto,
+    PackingDraft,
+    ReturnRework,
     ReturnReworkPhoto,
+    ShipmentReport,
     ShipmentPhoto,
     WaybillPhoto,
     WorkInfoLine,
@@ -41,6 +44,21 @@ TARGETS = [
     (PackingDraftPhoto, "file_path", "original_name"),
     (ReturnReworkPhoto, "file_path", "original_name"),
 ]
+
+
+def _company_for(session, model, record) -> str:
+    if isinstance(record, ShipmentPhoto):
+        report = session.get(ShipmentReport, record.report_id)
+        return report.company_name if report else ""
+    if isinstance(record, (WaybillPhoto, WorkInfoLine)):
+        return getattr(record, "company_name", "") or ""
+    if isinstance(record, PackingDraftPhoto):
+        draft = session.get(PackingDraft, record.draft_id)
+        return draft.company_name if draft else ""
+    if isinstance(record, ReturnReworkPhoto):
+        ret = session.get(ReturnRework, record.return_id)
+        return ret.order_line.company.name if ret and ret.order_line and ret.order_line.company else ""
+    return ""
 
 
 def main() -> int:
@@ -66,7 +84,8 @@ def main() -> int:
                 base = safe_filename_part(original) or f"{model.__name__.lower()}_{record.id}{suffix}"
                 if not Path(base).suffix:
                     base = base + suffix
-                local_path = save_local_upload(base, data)
+                company = safe_filename_part(_company_for(session, model, record))
+                local_path = save_local_upload(base, data, subdir=company)
                 setattr(record, col, local_path)
         if apply:
             session.commit()

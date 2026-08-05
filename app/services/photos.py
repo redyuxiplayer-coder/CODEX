@@ -39,15 +39,14 @@ def build_shipment_photo_name(upload_date: date, company_name: str, style_name: 
     return f"{upload_date.isoformat()}_{company}_{style}_{index:02d}{suffix.lower()}"
 
 
-def unique_target(base_name: str) -> Path:
-    target = UPLOAD_DIR / base_name
+def unique_target(target: Path) -> Path:
     if not target.exists():
         return target
     stem = target.stem
     suffix = target.suffix
     index = 2
     while True:
-        candidate = UPLOAD_DIR / f"{stem}_{index}{suffix}"
+        candidate = target.with_name(f"{stem}_{index}{suffix}")
         if not candidate.exists():
             return candidate
         index += 1
@@ -92,9 +91,10 @@ async def read_valid_upload_data(file: UploadFile, suffix: str) -> bytes:
     return b"".join(chunks)
 
 
-def save_local_upload(base_name: str, data: bytes) -> str:
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    target = unique_target(base_name)
+def save_local_upload(base_name: str, data: bytes, subdir: str = "") -> str:
+    target_dir = UPLOAD_DIR / subdir if subdir else UPLOAD_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = unique_target(target_dir / base_name)
     target.write_bytes(data)
     return str(target)
 
@@ -146,5 +146,6 @@ async def save_uploads(
         else:
             base_name = f"{uuid4().hex}{suffix}"
         data = await read_valid_upload_data(file, suffix)
-        saved.append(save_local_upload(base_name, data))
+        subdir = safe_filename_part(company_name) if company_name else ""
+        saved.append(save_local_upload(base_name, data, subdir=subdir))
     return saved

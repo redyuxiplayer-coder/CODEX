@@ -55,6 +55,7 @@ def test_save_uploads_writes_files_in_chunks(tmp_path, monkeypatch):
 
     assert len(paths) == 1
     assert Path(paths[0]).read_bytes() == payload
+    assert Path(paths[0]).parent.name == "源兴发"
     assert upload.read_sizes[:2] == [photo_service.UPLOAD_CHUNK_SIZE, photo_service.UPLOAD_CHUNK_SIZE]
 
 
@@ -85,6 +86,7 @@ def test_save_uploads_always_saves_local_even_when_supabase_is_configured(tmp_pa
     assert len(paths) == 1
     assert not paths[0].startswith("storage://")
     assert paths[0].endswith("2026-07-30_源兴发_小红帽男款_01.jpg")
+    assert Path(paths[0]).parent.name == "源兴发"
     assert Path(paths[0]).read_bytes() == JPG_BYTES
 
 
