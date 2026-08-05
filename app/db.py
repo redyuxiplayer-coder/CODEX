@@ -95,6 +95,8 @@ def ensure_schema_updates() -> None:
         with engine.begin() as connection:
             if "waybill_no" not in columns:
                 connection.execute(text("ALTER TABLE shipment_reports ADD COLUMN waybill_no VARCHAR(80) DEFAULT ''"))
+            if "waybill_id" not in columns:
+                connection.execute(text("ALTER TABLE shipment_reports ADD COLUMN waybill_id INTEGER"))
 
 
 def get_session() -> Iterator[Session]:

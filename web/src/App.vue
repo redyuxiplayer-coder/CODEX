@@ -41,6 +41,7 @@ async function doLogout() {
         <router-link to="/shipments">发货明细</router-link>
         <router-link to="/daily-stats">每日统计</router-link>
         <router-link to="/waybills">快递面单</router-link>
+        <router-link to="/logistics">快递记录</router-link>
         <router-link to="/skus">SKU/条码</router-link>
         <router-link to="/work-info">作业信息</router-link>
         <router-link to="/export">导出</router-link>

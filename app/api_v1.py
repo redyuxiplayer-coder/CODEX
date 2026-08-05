@@ -12,6 +12,7 @@ from app.models import (
     ShipmentLine,
     ShipmentReport,
     User,
+    WaybillRecord,
 )
 from app.services.adjustments import (
     create_order_adjustment,
@@ -22,6 +23,15 @@ from app.services.adjustments import (
 from app.services.daily_goals import get_daily_goals, set_daily_goals
 from app.services.daily_stats import daily_shipment_stats
 from app.services.ledger import order_line_totals
+from app.services.logistics import (
+    create_waybill_record,
+    delete_waybill_record,
+    link_candidates,
+    link_reports_to_waybill,
+    list_waybill_records,
+    unlink_report_from_waybill,
+    update_waybill_record,
+)
 from app.services.operation_logs import recent_operation_logs
 from app.services.orders import (
     build_structured_note,
@@ -229,6 +239,25 @@ def _proposal_dict(proposal) -> dict:
         "product": proposal.product_name,
         "style": proposal.style_name,
         "rows": rows,
+    }
+
+
+def _waybill_dict(record: WaybillRecord) -> dict:
+    return {
+        "id": record.id,
+        "company_name": record.company_name,
+        "ship_date": record.ship_date,
+        "waybill_no": record.waybill_no,
+        "weight_kg": record.weight_kg,
+        "package_count": record.package_count,
+        "note": record.note,
+        "created_at": record.created_at.isoformat() if record.created_at else "",
+        "linked_count": len(record.reports),
+        "linked_qty": sum(
+            int(line.quantity or 0)
+            for report in record.reports
+            for line in report.lines
+        ),
     }
 
 
@@ -853,6 +882,145 @@ def api_logs(request: Request, session: Session = Depends(get_session)):
             for log in recent_operation_logs(session)
         ]
     }
+
+
+@router.get("/logistics/candidates")
+def api_logistics_candidates(
+    request: Request,
+    company: str = "",
+    ship_date: str = "",
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    reports = link_candidates(session, company, ship_date)
+    return {"reports": [_report_dict(report) for report in reports]}
+
+
+@router.get("/logistics")
+def api_logistics_list(
+    request: Request,
+    company: str = "",
+    ship_date: str = "",
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    return {
+        "records": [
+            _waybill_dict(record)
+            for record in list_waybill_records(session, company, ship_date)
+        ]
+    }
+
+
+@router.post("/logistics")
+def api_logistics_create(
+    request: Request,
+    company_name: str = Form(...),
+    ship_date: str = Form(...),
+    waybill_no: str = Form(...),
+    weight_kg: float = Form(0),
+    package_count: int = Form(0),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    record = create_waybill_record(
+        session,
+        admin.id,
+        company_name,
+        ship_date,
+        waybill_no,
+        weight_kg,
+        package_count,
+        note,
+    )
+    return _waybill_dict(record)
+
+
+@router.get("/logistics/{waybill_id}")
+def api_logistics_detail(
+    request: Request,
+    waybill_id: int,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    record = session.get(WaybillRecord, waybill_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="快递单不存在")
+    return {
+        **_waybill_dict(record),
+        "reports": [_report_dict(report) for report in record.reports],
+    }
+
+
+@router.post("/logistics/{waybill_id}/update")
+def api_logistics_update(
+    request: Request,
+    waybill_id: int,
+    company_name: str = Form(...),
+    ship_date: str = Form(...),
+    waybill_no: str = Form(...),
+    weight_kg: float = Form(0),
+    package_count: int = Form(0),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    record = update_waybill_record(
+        session,
+        waybill_id,
+        company_name=company_name,
+        ship_date=ship_date,
+        waybill_no=waybill_no,
+        weight_kg=weight_kg,
+        package_count=package_count,
+        note=note,
+    )
+    return _waybill_dict(record)
+
+
+@router.post("/logistics/{waybill_id}/reports")
+def api_logistics_link(
+    request: Request,
+    waybill_id: int,
+    report_ids: list[int] = Form(...),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    record = link_reports_to_waybill(session, waybill_id, report_ids)
+    return {
+        **_waybill_dict(record),
+        "reports": [_report_dict(report) for report in record.reports],
+    }
+
+
+@router.post("/logistics/{waybill_id}/reports/{report_id}/remove")
+def api_logistics_unlink(
+    request: Request,
+    waybill_id: int,
+    report_id: int,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    unlink_report_from_waybill(session, waybill_id, report_id)
+    record = session.get(WaybillRecord, waybill_id)
+    if record is None:
+        return {"ok": True}
+    return {
+        **_waybill_dict(record),
+        "reports": [_report_dict(report) for report in record.reports],
+    }
+
+
+@router.delete("/logistics/{waybill_id}")
+def api_logistics_delete(
+    request: Request,
+    waybill_id: int,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    delete_waybill_record(session, waybill_id)
+    return {"ok": True}
 
 
 @router.get("/waybills")

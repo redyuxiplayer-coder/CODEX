@@ -38,3 +38,13 @@ def test_new_ledger_tables_and_columns_are_registered():
     assert {"package_no", "waybill_no"}.issubset(draft_columns)
     report_columns = {c["name"] for c in inspector.get_columns("shipment_reports")}
     assert "waybill_no" in report_columns
+
+
+def test_waybill_table_and_link_column_registered():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    assert "waybill_records" in tables
+    report_columns = {c["name"] for c in inspector.get_columns("shipment_reports")}
+    assert "waybill_id" in report_columns

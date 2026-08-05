@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -89,6 +89,7 @@ class ShipmentReport(Base):
     product_name: Mapped[str] = mapped_column(String(160), index=True)
     style_name: Mapped[str] = mapped_column(String(160), index=True)
     waybill_no: Mapped[str] = mapped_column(String(80), default="", index=True)
+    waybill_id: Mapped[int | None] = mapped_column(ForeignKey("waybill_records.id"), nullable=True, index=True)
     note: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(40), default="pending_review", index=True)
     review_reason: Mapped[str] = mapped_column(Text, default="")
@@ -97,6 +98,7 @@ class ShipmentReport(Base):
     user: Mapped[User] = relationship()
     lines: Mapped[list["ShipmentLine"]] = relationship(cascade="all, delete-orphan")
     photos: Mapped[list["ShipmentPhoto"]] = relationship(cascade="all, delete-orphan")
+    waybill: Mapped["WaybillRecord | None"] = relationship(back_populates="reports")
 
 
 class ShipmentLine(Base):
@@ -349,3 +351,22 @@ class OrderLineComment(Base):
 
     order_line: Mapped[OrderLine | None] = relationship()
     user: Mapped[User | None] = relationship()
+
+
+class WaybillRecord(Base):
+    """快递单：一笔实际寄出的快递，可关联多笔发货明细。"""
+
+    __tablename__ = "waybill_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_name: Mapped[str] = mapped_column(String(120), index=True)
+    ship_date: Mapped[str] = mapped_column(String(30), index=True)
+    waybill_no: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    weight_kg: Mapped[float] = mapped_column(Float, default=0)
+    package_count: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+    creator: Mapped[User | None] = relationship()
+    reports: Mapped[list["ShipmentReport"]] = relationship(back_populates="waybill")

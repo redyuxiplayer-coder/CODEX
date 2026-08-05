@@ -163,3 +163,43 @@ export function fetchWorkInfo(company, product, style) {
 export function saveWorkInfo(formData) {
   return postFormData("/api/v1/work-info", formData);
 }
+
+export function fetchLogistics(params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  const suffix = query.toString() ? `?${query}` : "";
+  return request(`/api/v1/logistics${suffix}`);
+}
+
+export function createLogistics(data) {
+  return postForm("/api/v1/logistics", data);
+}
+
+export function updateLogistics(id, data) {
+  return postForm(`/api/v1/logistics/${id}/update`, data);
+}
+
+export function deleteLogistics(id) {
+  return request(`/api/v1/logistics/${id}`, { method: "DELETE" });
+}
+
+export function fetchLogisticsDetail(id) {
+  return request(`/api/v1/logistics/${id}`);
+}
+
+export function linkLogisticsReports(id, reportIds) {
+  const body = new URLSearchParams();
+  reportIds.forEach((reportId) => body.append("report_ids", reportId));
+  return request(`/api/v1/logistics/${id}/reports`, { method: "POST", body });
+}
+
+export function unlinkLogisticsReport(id, reportId) {
+  return request(`/api/v1/logistics/${id}/reports/${reportId}/remove`, { method: "POST" });
+}
+
+export function fetchLogisticsCandidates(company, shipDate) {
+  const query = new URLSearchParams({ company, ship_date: shipDate });
+  return request(`/api/v1/logistics/candidates?${query}`);
+}

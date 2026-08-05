@@ -14,6 +14,7 @@ import Users from "./views/Users.vue";
 import Logs from "./views/Logs.vue";
 import Waybills from "./views/Waybills.vue";
 import WorkInfo from "./views/WorkInfo.vue";
+import Logistics from "./views/Logistics.vue";
 
 const routes = [
   { path: "/", redirect: "/dashboard" },
@@ -31,6 +32,7 @@ const routes = [
   { path: "/users", component: Users },
   { path: "/logs", component: Logs },
   { path: "/waybills", component: Waybills },
+  { path: "/logistics", component: Logistics },
   { path: "/work-info", component: WorkInfo },
 ];
 
