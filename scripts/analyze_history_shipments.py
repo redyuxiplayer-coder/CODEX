@@ -15,6 +15,9 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
 
 def load_env_file(path: Path) -> None:
     if not path.exists():
@@ -31,8 +34,7 @@ def load_env_file(path: Path) -> None:
 
 
 def main() -> int:
-    repo_root = Path(__file__).resolve().parent.parent
-    load_env_file(repo_root / ".env")
+    load_env_file(REPO_ROOT / ".env")
 
     from app.db import SessionLocal
     from app.models import ShipmentLine, ShipmentReport
