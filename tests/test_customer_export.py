@@ -45,7 +45,7 @@ def test_customer_export_uses_waybill_number_and_detail_sheet(db_session, tmp_pa
     assert values[9] == "800209579798"
     detail = wb["发货明细"]
     detail_headers = [cell.value for cell in detail[1]]
-    assert detail_headers == ["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号", "上报人"]
+    assert detail_headers == ["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号"]
     detail_row = [cell.value for cell in detail[2]]
     assert detail_row[0] == "2026-07-17"
     assert detail_row[5] == 50

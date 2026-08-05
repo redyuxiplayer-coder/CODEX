@@ -268,7 +268,7 @@ def add_shipments_sheet(wb: Workbook, session: Session, title: str = "发货流�
 
 def add_customer_detail_sheet(wb: Workbook, session: Session, company_name: str | None = None) -> None:
     ws = wb.create_sheet("发货明细")
-    ws.append(["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号", "上报人"])
+    ws.append(["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号"])
     query = session.query(ShipmentReport).filter(
         ShipmentReport.status.in_(("auto_approved", "approved_after_edit"))
     )
@@ -289,7 +289,6 @@ def add_customer_detail_sheet(wb: Workbook, session: Session, company_name: str 
                 line.size,
                 line.quantity,
                 waybill_no,
-                report.user.display_name if report.user else "",
             ])
     style_sheet(ws)
 
