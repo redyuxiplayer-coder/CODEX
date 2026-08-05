@@ -117,6 +117,64 @@ def shipment_details_by_balance_row(session: Session, balances: list[dict]) -> d
     return {key: "；".join(values) for key, values in details.items()}
 
 
+def waybill_numbers_by_balance_row(session: Session, balances: list[dict]) -> dict[object, str]:
+    """按余额行汇总关联的快递单号（顿号分隔）。"""
+    numbers: dict[object, set[str]] = {}
+    remaining_capacity: dict[object, int] = {}
+    rows_by_base_key: dict[tuple[str, str, str, str], list[dict]] = {}
+    rows_by_order_id: dict[int, dict] = {}
+    for row in balances:
+        key = _balance_detail_key(row)
+        remaining_capacity[key] = int(row.get("shipped") or 0)
+        base_key = (row["company"], row["product"], row["style"], row["size"])
+        rows_by_base_key.setdefault(base_key, []).append(row)
+        for order_id in row.get("order_ids", [row.get("order_id")]):
+            if order_id:
+                rows_by_order_id[int(order_id)] = row
+
+    reports = (
+        session.query(ShipmentReport)
+        .filter(ShipmentReport.status.in_(("auto_approved", "approved_after_edit")))
+        .order_by(ShipmentReport.ship_date, ShipmentReport.created_at)
+        .all()
+    )
+    for report in reports:
+        waybill_no = ""
+        if report.waybill is not None:
+            waybill_no = report.waybill.waybill_no or ""
+        elif report.waybill_no:
+            waybill_no = report.waybill_no
+        if not waybill_no:
+            continue
+        for line in report.lines:
+            if line.order_line_id:
+                row = rows_by_order_id.get(int(line.order_line_id))
+                if row:
+                    numbers.setdefault(_balance_detail_key(row), set()).add(waybill_no)
+                continue
+            product_name, style_name = canonical_item(session, report.company_name, report.product_name, report.style_name)
+            key = (report.company_name, product_name, style_name, line.size)
+            unassigned_quantity = int(line.quantity or 0)
+            for row in rows_by_base_key.get(key, []):
+                row_key = _balance_detail_key(row)
+                available = remaining_capacity.get(row_key, 0)
+                if available <= 0:
+                    continue
+                assigned_quantity = min(available, unassigned_quantity)
+                if assigned_quantity <= 0:
+                    break
+                numbers.setdefault(row_key, set()).add(waybill_no)
+                remaining_capacity[row_key] = available - assigned_quantity
+                unassigned_quantity -= assigned_quantity
+                if unassigned_quantity <= 0:
+                    break
+    return {
+        key: "、".join(sorted(values))
+        for key, values in numbers.items()
+        if values
+    }
+
+
 def add_balance_sheet(wb: Workbook, title: str, balances: list[dict], shipment_details: dict[object, str] | None = None) -> None:
     ws = wb.create_sheet(title)
     shipment_details = shipment_details or {}
@@ -131,15 +189,21 @@ def add_balance_sheet(wb: Workbook, title: str, balances: list[dict], shipment_d
     return ws
 
 
-def add_customer_balance_sheet(wb: Workbook, title: str, balances: list[dict], shipment_details: dict[object, str] | None = None) -> None:
+def add_customer_balance_sheet(
+    wb: Workbook,
+    title: str,
+    balances: list[dict],
+    shipment_details: dict[object, str] | None = None,
+    waybill_numbers: dict[object, str] | None = None,
+) -> None:
     ws = wb.create_sheet(title)
-    shipment_details = shipment_details or {}
-    ws.append(["公司", "产品", "款式", "订单", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量"])
+    waybill_numbers = waybill_numbers or {}
+    ws.append(["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号"])
     for row in balances:
         key = _balance_detail_key(row)
         ws.append([
-            row["company"], row["product"], row["style"], row.get("order_ref", ""), row["size"], row.get("sku", ""), shipment_details.get(key, ""),
-            row["ordered"], row["shipped"], row["remaining"],
+            row["company"], row["product"], row["style"], row.get("order_ref", ""), row["size"], row.get("sku", ""),
+            row["ordered"], row["shipped"], row["remaining"], waybill_numbers.get(key, ""),
         ])
     style_sheet(ws)
     return ws
@@ -202,6 +266,34 @@ def add_shipments_sheet(wb: Workbook, session: Session, title: str = "发货流�
     style_sheet(ws)
 
 
+def add_customer_detail_sheet(wb: Workbook, session: Session, company_name: str | None = None) -> None:
+    ws = wb.create_sheet("发货明细")
+    ws.append(["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号", "上报人"])
+    query = session.query(ShipmentReport).filter(
+        ShipmentReport.status.in_(("auto_approved", "approved_after_edit"))
+    )
+    if company_name:
+        query = query.filter(ShipmentReport.company_name == company_name)
+    for report in query.order_by(ShipmentReport.ship_date, ShipmentReport.created_at).all():
+        waybill_no = ""
+        if report.waybill is not None:
+            waybill_no = report.waybill.waybill_no or ""
+        elif report.waybill_no:
+            waybill_no = report.waybill_no
+        for line in report.lines:
+            ws.append([
+                report.ship_date,
+                report.company_name,
+                report.product_name,
+                report.style_name,
+                line.size,
+                line.quantity,
+                waybill_no,
+                report.user.display_name if report.user else "",
+            ])
+    style_sheet(ws)
+
+
 def export_total_workbook(session: Session, output_path: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
@@ -253,8 +345,13 @@ def export_customer_company_workbook(session: Session, company_name: str, output
     wb = Workbook()
     wb.remove(wb.active)
     balances = get_order_balances(session, company_name=company_name)
-    ws = add_customer_balance_sheet(wb, "客户发货明细", balances, shipment_details_by_balance_row(session, balances))
-    add_waybill_images_to_sheet(ws, get_waybill_photos(session, company_name))
+    add_customer_balance_sheet(
+        wb,
+        "客户发货明细",
+        balances,
+        waybill_numbers=waybill_numbers_by_balance_row(session, balances),
+    )
+    add_customer_detail_sheet(wb, session, company_name=company_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
     return output_path
