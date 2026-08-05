@@ -91,12 +91,12 @@ ORDER BY r.id;
 
 \echo '=== E. 绑定发货超过下单数量（超发/重复绑定） ==='
 SELECT o.id AS order_line_id, c.name AS company, o.style_name, o.size, o.quantity AS ordered,
-       SUM(l.quantity) AS bound_shipped
+       SUM(CASE WHEN r.status IN ('auto_approved','approved_after_edit') THEN l.quantity ELSE 0 END) AS bound_shipped
 FROM order_lines o
 JOIN companies c ON c.id = o.company_id
 LEFT JOIN shipment_lines l ON l.order_line_id = o.id
-LEFT JOIN shipment_reports r ON r.id = l.report_id AND r.status IN ('auto_approved','approved_after_edit')
+LEFT JOIN shipment_reports r ON r.id = l.report_id
 WHERE o.is_active = TRUE
 GROUP BY o.id, c.name, o.style_name, o.size, o.quantity
-HAVING SUM(l.quantity) > o.quantity
+HAVING SUM(CASE WHEN r.status IN ('auto_approved','approved_after_edit') THEN l.quantity ELSE 0 END) > o.quantity
 ORDER BY c.name, o.style_name, o.size;
