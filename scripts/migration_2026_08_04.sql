@@ -102,3 +102,22 @@ CREATE TABLE IF NOT EXISTS order_line_comments (
 
 ;
 
+-- 快递记录（2026-08-05 新增）
+ALTER TABLE shipment_reports ADD COLUMN IF NOT EXISTS waybill_id INTEGER;
+
+CREATE TABLE IF NOT EXISTS waybill_records (
+	id SERIAL NOT NULL, 
+	company_name VARCHAR(120) NOT NULL, 
+	ship_date VARCHAR(30) NOT NULL, 
+	waybill_no VARCHAR(80) NOT NULL, 
+	weight_kg FLOAT NOT NULL, 
+	package_count INTEGER NOT NULL, 
+	note TEXT NOT NULL, 
+	created_by INTEGER, 
+	created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(created_by) REFERENCES users (id)
+)
+
+;
+CREATE UNIQUE INDEX IF NOT EXISTS ix_waybill_records_waybill_no ON waybill_records (waybill_no);
