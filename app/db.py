@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import DATA_DIR, DATABASE_URL, EXPORT_DIR, UPLOAD_DIR
+from app.config import DATA_DIR, DATABASE_URL, EXPORT_DIR, THUMBNAIL_DIR, UPLOAD_DIR
 
 
 class Base(DeclarativeBase):
@@ -25,11 +25,10 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_storage() -> None:
-    if not needs_local_storage(DATABASE_URL):
-        return
     DATA_DIR.mkdir(exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def init_db() -> None:

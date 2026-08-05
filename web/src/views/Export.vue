@@ -16,25 +16,44 @@ onMounted(async () => {
   <div>
     <h1 class="page-title">导出 Excel</h1>
     <div class="section-card" style="max-width:520px">
-      <form method="post" action="/admin/export" target="_blank">
-        <el-form label-width="90px">
-          <el-form-item label="公司">
-            <el-select v-model="company" name="company" style="width:100%">
-              <el-option label="全部公司" value="__all__" />
-              <el-option v-for="c in companies" :key="c" :label="c" :value="c" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="导出版本">
-            <el-select v-model="template" name="template" style="width:100%">
-              <el-option label="客户版" value="customer" />
-              <el-option label="内部版" value="internal" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" native-type="submit">导出表格</el-button>
-          </el-form-item>
-        </el-form>
+      <form method="post" action="/admin/export" class="export-form">
+        <label class="muted">公司</label>
+        <select name="company" v-model="company">
+          <option value="__all__">全部公司</option>
+          <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
+        </select>
+        <label class="muted">导出版本</label>
+        <select name="template" v-model="template">
+          <option value="customer">客户版</option>
+          <option value="internal">内部版</option>
+        </select>
+        <button type="submit">导出表格</button>
       </form>
     </div>
   </div>
 </template>
+
+<style scoped>
+.export-form {
+  display: grid;
+  gap: 10px;
+  max-width: 420px;
+}
+.export-form select {
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 15px;
+  background: #fafbfc;
+}
+.export-form button {
+  margin-top: 6px;
+  padding: 11px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+}
+</style>

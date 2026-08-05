@@ -268,6 +268,19 @@ def test_logs_and_waybills(db_session, tmp_path):
     assert upload.json()["imported"] == 1
 
 
+def test_export_route_returns_xlsx(db_session):
+    client, _admin, _worker = _client(db_session)
+    create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100)
+
+    response = client.post(
+        "/admin/export",
+        data={"export_type": "company", "company": "源兴发", "template": "customer"},
+    )
+
+    assert response.status_code == 200
+    assert "spreadsheetml" in response.headers.get("content-type", "")
+
+
 def test_work_info_get_and_save(db_session):
     client, _admin, _worker = _client(db_session)
 
