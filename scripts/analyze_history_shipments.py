@@ -36,7 +36,14 @@ def main() -> int:
 
     from app.db import SessionLocal
     from app.models import ShipmentLine, ShipmentReport
+    from app.config import DATABASE_URL
     from sqlalchemy import func
+
+    if DATABASE_URL.startswith("sqlite"):
+        print("注意：当前连接的是 SQLite（本地库），不是生产库！")
+    else:
+        host = DATABASE_URL.split("@")[-1].split("/")[0]
+        print(f"已连接生产库: {host}")
 
     date_qty_re = re.compile(r"(\d{1,2})-(\d{1,2})[^\d]{0,6}发\s*(\d+)\s*件")
     no_date_re = re.compile(r"(?:^|[；;])\s*已发\s*(\d+)\s*件")
