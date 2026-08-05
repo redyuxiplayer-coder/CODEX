@@ -145,11 +145,12 @@
   {% endif %}
   <form method="post" action="/admin/order-lines/{{ order.id }}/adjustments" class="grid-form">
     <label>数量</label>
-    <input name="quantity" type="number" min="1" required>
+    <input name="quantity" type="number" required>
     <label>原因</label>
     <select name="reason">
       <option>盘点</option>
       <option>少发核销</option>
+      <option>超发核销</option>
       <option>报废</option>
       <option>其他</option>
     </select>

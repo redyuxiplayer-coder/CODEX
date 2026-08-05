@@ -35,6 +35,54 @@ def test_order_line_detail_page_shows_ledger_and_forms(db_session):
         assert text in response.text
 
 
+def test_order_line_adjustment_form_allows_negative_and_overship_option(db_session):
+    """盘点/调整表单允许负数（超发核销），并提供「超发核销」原因选项。"""
+    client, _admin, order = _client(db_session)
+
+    response = client.get(f"/admin/order-lines/{order.id}")
+
+    assert response.status_code == 200
+    adjustments_section = response.text.split("盘点/调整")[1].split("关闭（客户不再要）")[0]
+    assert "超发核销" in adjustments_section
+    quantity_input = next(
+        line.strip() for line in adjustments_section.splitlines() if 'name="quantity"' in line
+    )
+    assert quantity_input == '<input name="quantity" type="number" required>'
+    assert "min=" not in quantity_input
+
+
+def test_negative_adjustment_clears_over_shipment(db_session):
+    """超发 1 件时，用负数调整（超发核销）把余额归零。"""
+    from app.models import ShipmentLine, ShipmentReport
+
+    client, admin, order = _client(db_session)
+    report = ShipmentReport(
+        user_id=admin.id,
+        ship_date="2026-07-19",
+        company_name="源兴发",
+        product_name="裁判",
+        style_name="圆领裁判",
+        status="auto_approved",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=report.id, order_line_id=order.id, size="M", quantity=101))
+    db_session.commit()
+
+    assert get_order_balances(db_session)[0]["remaining"] == -1
+
+    response = client.post(
+        f"/admin/order-lines/{order.id}/adjustments",
+        data={"quantity": "-1", "reason": "超发核销"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    row = get_order_balances(db_session)[0]
+    assert row["adjusted"] == -1
+    assert row["remaining"] == 0
+
+
 def test_order_line_forms_create_records_and_affect_balance(db_session):
     client, admin, order = _client(db_session)
 
