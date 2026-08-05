@@ -6,10 +6,10 @@ SELECT r.id AS report_id, r.ship_date, r.status, r.company_name, r.product_name,
        l.size, l.quantity,
        COALESCE((SELECT canonical_product FROM product_aliases a
                  WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
-                   AND a.alias_style=r.style_name AND a.is_active=1 LIMIT 1), r.product_name) AS c_product,
+                   AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.product_name) AS c_product,
        COALESCE((SELECT canonical_style FROM product_aliases a
                  WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
-                   AND a.alias_style=r.style_name AND a.is_active=1 LIMIT 1), r.style_name) AS c_style
+                   AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.style_name) AS c_style
 FROM shipment_reports r
 JOIN shipment_lines l ON l.report_id = r.id
 WHERE l.order_line_id IS NULL
@@ -22,10 +22,10 @@ FROM (
   SELECT r.id AS report_id, r.ship_date, r.company_name, r.style_name, l.size, l.quantity,
          COALESCE((SELECT canonical_product FROM product_aliases a
                    WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
-                     AND a.alias_style=r.style_name AND a.is_active=1 LIMIT 1), r.product_name) AS c_product,
+                     AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.product_name) AS c_product,
          COALESCE((SELECT canonical_style FROM product_aliases a
                    WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
-                     AND a.alias_style=r.style_name AND a.is_active=1 LIMIT 1), r.style_name) AS c_style
+                     AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.style_name) AS c_style
   FROM shipment_reports r
   JOIN shipment_lines l ON l.report_id = r.id
   WHERE l.order_line_id IS NULL AND r.status IN ('auto_approved','approved_after_edit')
@@ -34,13 +34,13 @@ LEFT JOIN (
   SELECT o.company_id, c.name AS company, o.product_name, o.style_name, o.size,
          COALESCE((SELECT canonical_product FROM product_aliases a
                    WHERE a.company_name=c.name AND a.alias_product=o.product_name
-                     AND a.alias_style=o.style_name AND a.is_active=1 LIMIT 1), o.product_name) AS c_product,
+                     AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.product_name) AS c_product,
          COALESCE((SELECT canonical_style FROM product_aliases a
                    WHERE a.company_name=c.name AND a.alias_product=o.product_name
-                     AND a.alias_style=o.style_name AND a.is_active=1 LIMIT 1), o.style_name) AS c_style
+                     AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.style_name) AS c_style
   FROM order_lines o
   JOIN companies c ON c.id = o.company_id
-  WHERE o.is_active = 1
+  WHERE o.is_active = TRUE
 ) o
   ON o.company = u.company_name AND o.c_product = u.c_product AND o.c_style = u.c_style AND o.size = u.size
 WHERE o.company IS NULL
@@ -50,14 +50,14 @@ ORDER BY u.company_name, u.c_style, u.size;
 SELECT c.name AS company,
        COALESCE((SELECT canonical_product FROM product_aliases a
                  WHERE a.company_name=c.name AND a.alias_product=o.product_name
-                   AND a.alias_style=o.style_name AND a.is_active=1 LIMIT 1), o.product_name) AS c_product,
+                   AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.product_name) AS c_product,
        COALESCE((SELECT canonical_style FROM product_aliases a
                  WHERE a.company_name=c.name AND a.alias_product=o.product_name
-                   AND a.alias_style=o.style_name AND a.is_active=1 LIMIT 1), o.style_name) AS c_style,
+                   AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.style_name) AS c_style,
        o.size, COUNT(*) AS order_count, SUM(o.quantity) AS total_ordered
 FROM order_lines o
 JOIN companies c ON c.id = o.company_id
-WHERE o.is_active = 1
+WHERE o.is_active = TRUE
 GROUP BY c.name, c_product, c_style, o.size
 HAVING COUNT(*) > 1
 ORDER BY c.name, c_product, c_style, o.size;
@@ -76,16 +76,16 @@ WHERE r.status IN ('auto_approved','approved_after_edit')
     OR l.size != o.size
     OR COALESCE((SELECT canonical_product FROM product_aliases a
                  WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
-                   AND a.alias_style=r.style_name AND a.is_active=1 LIMIT 1), r.product_name)
+                   AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.product_name)
        != COALESCE((SELECT canonical_product FROM product_aliases a
                     WHERE a.company_name=c.name AND a.alias_product=o.product_name
-                      AND a.alias_style=o.style_name AND a.is_active=1 LIMIT 1), o.product_name)
+                      AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.product_name)
     OR COALESCE((SELECT canonical_style FROM product_aliases a
                  WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
-                   AND a.alias_style=r.style_name AND a.is_active=1 LIMIT 1), r.style_name)
+                   AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.style_name)
        != COALESCE((SELECT canonical_style FROM product_aliases a
                     WHERE a.company_name=c.name AND a.alias_product=o.product_name
-                      AND a.alias_style=o.style_name AND a.is_active=1 LIMIT 1), o.style_name)
+                      AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.style_name)
   )
 ORDER BY r.id;
 
@@ -96,7 +96,7 @@ FROM order_lines o
 JOIN companies c ON c.id = o.company_id
 LEFT JOIN shipment_lines l ON l.order_line_id = o.id
 LEFT JOIN shipment_reports r ON r.id = l.report_id AND r.status IN ('auto_approved','approved_after_edit')
-WHERE o.is_active = 1
+WHERE o.is_active = TRUE
 GROUP BY o.id, c.name, o.style_name, o.size, o.quantity
 HAVING SUM(l.quantity) > o.quantity
 ORDER BY c.name, o.style_name, o.size;
