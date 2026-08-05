@@ -8,6 +8,7 @@ from app.models import (
 from app.services.ledger import order_line_totals, recompute_order_ledger
 from app.services.orders import create_order_line, get_order_balances
 from app.services.shipments import submit_shipment_report
+from app.models import ShipmentLine, ShipmentReport
 
 
 def _admin(db_session) -> User:
@@ -81,3 +82,42 @@ def test_scrapped_return_counts_as_returned_plus_adjusted(db_session):
     assert totals["returned"] == 5
     assert totals["adjusted"] == 5
     assert totals["remaining"] == 0
+
+
+def test_order_line_totals_include_unbound_history_shipment(db_session):
+    from app.services.aliases import create_product_alias
+
+    admin = _admin(db_session)
+    create_product_alias(db_session, "源兴发", "小偷", "小偷COS", "小偷", "小偷女款", "统一")
+    order = create_order_line(db_session, "源兴发", "小偷", "小偷女款", "XL", 100)
+    bound_report = submit_shipment_report(
+        db_session,
+        admin.id,
+        "2026-07-31",
+        "源兴发",
+        "小偷",
+        "小偷女款",
+        [{"size": "XL", "quantity": 16, "order_line_id": order.id}],
+        [],
+        "",
+    )
+    bound_report.status = "auto_approved"
+    # 历史导入：未绑定订单行，款式旧名"小偷COS"
+    history_report = ShipmentReport(
+        user_id=admin.id,
+        ship_date="2026-07-13",
+        company_name="源兴发",
+        product_name="小偷",
+        style_name="小偷COS",
+        note="从旧Excel导入已发数量",
+        status="auto_approved",
+    )
+    db_session.add(history_report)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=history_report.id, order_line_id=None, size="XL", quantity=46))
+    db_session.commit()
+
+    totals = order_line_totals(db_session, order.id)
+
+    assert totals["shipped"] == 62
+    assert totals["remaining"] == 38

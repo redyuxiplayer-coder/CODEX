@@ -134,6 +134,12 @@ async function addComment() {
         <h2>已发记录</h2>
         <el-table :data="detail.shipments" border size="small">
           <el-table-column prop="ship_date" label="发货日期" width="120" />
+          <el-table-column label="类型" width="120">
+            <template #default="{ row }">
+              <el-tag v-if="row.bound" size="small" type="success">本单发货</el-tag>
+              <el-tag v-else size="small" type="info">历史导入归入</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="110">
             <template #default="{ row }">
               <el-tag size="small" type="success">{{ row.status === "auto_approved" ? "已通过" : "已修改通过" }}</el-tag>

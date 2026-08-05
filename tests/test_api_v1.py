@@ -106,3 +106,32 @@ def test_api_write_endpoints_create_records_and_affect_balance(db_session):
 
     row = get_order_balances(db_session, "源兴发")[0]
     assert row["remaining"] == 100 + 3 - 4 - 2
+
+
+def test_api_order_line_detail_includes_unbound_history_shipment(db_session):
+    from app.models import ShipmentLine, ShipmentReport
+    from app.services.aliases import create_product_alias
+
+    client, admin = _client(db_session)
+    create_product_alias(db_session, "源兴发", "小偷", "小偷COS", "小偷", "小偷女款", "统一")
+    order = create_order_line(db_session, "源兴发", "小偷", "小偷女款", "XL", 100)
+    history = ShipmentReport(
+        user_id=admin.id,
+        ship_date="2026-07-13",
+        company_name="源兴发",
+        product_name="小偷",
+        style_name="小偷COS",
+        status="auto_approved",
+    )
+    db_session.add(history)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=history.id, order_line_id=None, size="XL", quantity=46))
+    db_session.commit()
+
+    response = client.get(f"/api/v1/order-lines/{order.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["totals"]["shipped"] == 46
+    assert payload["totals"]["remaining"] == 54
+    assert any(not s["bound"] and s["quantity"] == 46 for s in payload["shipments"])

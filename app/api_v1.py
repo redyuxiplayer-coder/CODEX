@@ -165,7 +165,31 @@ def _shipment_dict(report: ShipmentReport, line: ShipmentLine) -> dict:
         "quantity": line.quantity,
         "note": report.note,
         "waybill_no": report.waybill_no or "",
+        "bound": True,
     }
+
+
+def _unbound_shipment_rows(session: Session, order: OrderLine) -> list[tuple[ShipmentReport, ShipmentLine]]:
+    from app.services.aliases import canonical_item
+
+    canonical_product, canonical_style = canonical_item(session, order.company.name, order.product_name, order.style_name)
+    rows = (
+        session.query(ShipmentReport, ShipmentLine)
+        .join(ShipmentLine, ShipmentLine.report_id == ShipmentReport.id)
+        .filter(
+            ShipmentLine.order_line_id.is_(None),
+            ShipmentReport.company_name == order.company.name,
+            ShipmentLine.size == order.size,
+            ShipmentReport.status.in_(APPROVED_STATUSES),
+        )
+        .all()
+    )
+    result = []
+    for report, line in rows:
+        product, style = canonical_item(session, report.company_name, report.product_name, report.style_name)
+        if product == canonical_product and style == canonical_style:
+            result.append((report, line))
+    return result
 
 
 def _report_dict(report: ShipmentReport) -> dict:
@@ -238,6 +262,7 @@ def _detail_payload(session: Session, line_id: int) -> dict:
         .order_by(ShipmentReport.ship_date.desc(), ShipmentReport.id.desc())
         .all()
     )
+    unbound_shipments = _unbound_shipment_rows(session, order)
     ledger = (
         session.query(OrderLedgerEntry)
         .filter_by(order_line_id=line_id)
@@ -258,7 +283,11 @@ def _detail_payload(session: Session, line_id: int) -> dict:
         "adjustments": [_adjustment_dict(record) for record in list_adjustments(session, line_id)],
         "closes": [_close_dict(record) for record in list_closes(session, line_id)],
         "comments": [_comment_dict(record) for record in comments],
-        "shipments": [_shipment_dict(report, line) for report, line in shipments],
+        "shipments": [_shipment_dict(report, line) for report, line in shipments]
+        + [
+            {**_shipment_dict(report, line), "bound": False}
+            for report, line in unbound_shipments
+        ],
     }
 
 
