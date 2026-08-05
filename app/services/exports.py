@@ -311,9 +311,14 @@ def export_customer_total_workbook(session: Session, output_path: Path) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
     balances = get_order_balances(session)
-    shipment_details = shipment_details_by_balance_row(session, balances)
-    add_customer_balance_sheet(wb, "客户发货明细", balances, shipment_details)
-    add_customer_balance_sheet(wb, "未发货明细", [row for row in balances if row["remaining"] > 0], shipment_details)
+    add_customer_balance_sheet(
+        wb,
+        "客户发货明细",
+        balances,
+        waybill_numbers=waybill_numbers_by_balance_row(session, balances),
+    )
+    add_customer_balance_sheet(wb, "未发货明细", [row for row in balances if row["remaining"] > 0])
+    add_customer_detail_sheet(wb, session)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
     return output_path

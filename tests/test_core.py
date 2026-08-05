@@ -139,13 +139,20 @@ def test_export_keeps_unassigned_shipments_off_orders_filled_by_assigned_history
 
     export_customer_company_workbook(db_session, "艾润特", output)
 
-    ws = load_workbook(output)["客户发货明细"]
+    wb = load_workbook(output)
+    ws = wb["客户发货明细"]
     assert ws["D2"].value == "2026-06-02"
-    assert ws["G2"].value == "06-23 发 1075件；07-14 发 25件"
-    assert ws["I2"].value == 1100
+    assert ws["G2"].value == 1100  # 下单
+    assert ws["H2"].value == 1100  # 已发（历史导入已绑定本单）
+    assert ws["I2"].value == 0     # 未发
     assert ws["D3"].value == "2026-06-17"
-    assert ws["G3"].value == "2026-07-20 发 166件"
-    assert ws["I3"].value == 166
+    assert ws["G3"].value == 2000
+    assert ws["H3"].value == 166
+    assert ws["I3"].value == 1834
+    detail = wb["发货明细"]
+    assert [cell.value for cell in detail[1]][:6] == ["发货日期", "公司", "产品", "款式", "尺码", "数量"]
+    detail_values = [[cell.value for cell in row] for row in detail.iter_rows(min_row=2)]
+    assert any(row[5] == 166 for row in detail_values)
 
 
 def test_preview_excel_orders_reads_current_total_format(tmp_path: Path):
@@ -215,16 +222,19 @@ def test_customer_company_export_hides_internal_review_fields(db_session, tmp_pa
     export_customer_company_workbook(db_session, "源兴发", output)
 
     wb = load_workbook(output)
-    assert wb.sheetnames == ["客户发货明细"]
+    assert wb.sheetnames == ["客户发货明细", "发货明细"]
     ws = wb["客户发货明细"]
     headers = [cell.value for cell in ws[1]]
-    assert headers[:10] == ["公司", "产品", "款式", "订单", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量"]
+    assert headers == ["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号"]
     visible_headers = [header for header in headers if header]
     assert "上报人" not in visible_headers
     assert "状态" not in visible_headers
     assert "异常原因" not in visible_headers
     assert "备注" not in visible_headers
-    assert ws["G2"].value == "2026-07-15 发 80件"
+    assert ws["H2"].value == 80
+    detail = wb["发货明细"]
+    detail_values = [[cell.value for cell in row] for row in detail.iter_rows(min_row=2)]
+    assert any(row[5] == 80 for row in detail_values)
 
 
 def test_customer_export_splits_shipment_details_across_duplicate_orders(db_session, tmp_path):
@@ -259,14 +269,15 @@ def test_customer_export_splits_shipment_details_across_duplicate_orders(db_sess
 
     export_customer_company_workbook(db_session, "艾润特", output)
 
-    ws = load_workbook(output)["客户发货明细"]
-    split_text = "2026-07-20 发 130件，其中100件发2026-06-17订单，30件发2026-06-23订单"
+    wb = load_workbook(output)
+    ws = wb["客户发货明细"]
     assert ws["D2"].value == "2026-06-17"
-    assert ws["G2"].value == split_text
-    assert ws["I2"].value == 100
+    assert ws["H2"].value == 100
     assert ws["D3"].value == "2026-06-23"
-    assert ws["G3"].value == f"{split_text}；2026-07-21 发 20件"
-    assert ws["I3"].value == 50
+    assert ws["H3"].value == 50
+    detail = wb["发货明细"]
+    detail_values = [[cell.value for cell in row] for row in detail.iter_rows(min_row=2)]
+    assert sum(row[5] for row in detail_values) == 150
 
 
 def test_customer_export_shipment_detail_uses_canonical_names(db_session, tmp_path):
@@ -300,8 +311,12 @@ def test_customer_export_shipment_detail_uses_canonical_names(db_session, tmp_pa
 
     export_customer_company_workbook(db_session, "合肥Hoo", output)
 
-    ws = load_workbook(output)["客户发货明细"]
-    assert ws["G2"].value == "2026-07-19 发 317件"
+    wb = load_workbook(output)
+    ws = wb["客户发货明细"]
+    assert ws["H2"].value == 317
+    detail = wb["发货明细"]
+    detail_values = [[cell.value for cell in row] for row in detail.iter_rows(min_row=2)]
+    assert any(row[3] == "小红帽男款" and row[5] == 317 for row in detail_values)
 
 
 def test_customer_export_shipment_detail_canonicalizes_existing_reports(db_session, tmp_path):
@@ -336,5 +351,9 @@ def test_customer_export_shipment_detail_canonicalizes_existing_reports(db_sessi
 
     export_customer_company_workbook(db_session, "张鹏", output)
 
-    ws = load_workbook(output)["客户发货明细"]
-    assert ws["G2"].value == "2026-07-17 发 180件"
+    wb = load_workbook(output)
+    ws = wb["客户发货明细"]
+    assert ws["H2"].value == 180
+    detail = wb["发货明细"]
+    detail_values = [[cell.value for cell in row] for row in detail.iter_rows(min_row=2)]
+    assert any(row[0] == "2026-07-17" and row[5] == 180 for row in detail_values)
