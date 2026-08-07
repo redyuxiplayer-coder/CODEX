@@ -60,6 +60,8 @@ async function loadUnlinked() {
   loadingUnlinked.value = true;
   try {
     unlinked.value = (await fetchUnlinkedLogistics({ company: filterCompany.value, ship_date: filterDate.value })).records;
+  } catch (err) {
+    ElMessage.error(`未挂靠列表加载失败：${err.message}`);
   } finally {
     loadingUnlinked.value = false;
   }
@@ -69,6 +71,8 @@ function toggleUnlinked() {
   unlinkedMode.value = !unlinkedMode.value;
   if (unlinkedMode.value) {
     loadUnlinked();
+  } else {
+    load();
   }
 }
 
@@ -236,7 +240,7 @@ function reportQty(report) {
         <el-button type="primary" plain @click="openCreate">新增快递单</el-button>
       </div>
 
-      <el-table :data="records" v-loading="loading" border size="small">
+      <el-table v-if="!unlinkedMode" :data="records" v-loading="loading" border size="small">
         <el-table-column prop="ship_date" label="发货日期" width="110" />
         <el-table-column prop="company_name" label="公司" width="130" />
         <el-table-column prop="waybill_no" label="快递单号" min-width="150" />
