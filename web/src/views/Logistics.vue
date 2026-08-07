@@ -7,21 +7,37 @@ import {
   fetchLogistics,
   fetchLogisticsCandidates,
   fetchLogisticsDetail,
+  fetchUnlinkedLogistics,
   linkLogisticsReports,
+  quickLinkLogistics,
+  setUnlinkedReason,
   unlinkLogisticsReport,
   updateLogistics,
 } from "../api";
+
+const COURIER_OPTIONS = ["中通", "顺丰", "货拉拉", "跨越物流", "京东", "圆通", "韵达", "极兔", "申通", "其他"];
 
 const records = ref([]);
 const loading = ref(false);
 const filterCompany = ref("");
 const filterDate = ref("");
+const unlinkedMode = ref(false);
+const unlinked = ref([]);
+const loadingUnlinked = ref(false);
 
 const formDialog = ref(false);
 const editing = ref(false);
 const editingId = ref(null);
-const form = ref({ company_name: "", ship_date: "", waybill_no: "", weight_kg: "", package_count: "", note: "" });
+const form = ref({ company_name: "", ship_date: "", waybill_no: "", courier: "中通", weight_kg: "", package_count: "", note: "" });
 const saving = ref(false);
+
+const linkDialog = ref(false);
+const linkForm = ref({ report_id: null, courier: "中通", waybill_no: "", weight_kg: 0, package_count: 0, note: "" });
+const linking = ref(false);
+
+const reasonDialog = ref(false);
+const reasonForm = ref({ report_id: null, reason: "" });
+const savingReason = ref(false);
 
 const detailDialog = ref(false);
 const detail = ref(null);
@@ -35,6 +51,25 @@ async function load() {
   } finally {
     loading.value = false;
   }
+  if (unlinkedMode.value) {
+    await loadUnlinked();
+  }
+}
+
+async function loadUnlinked() {
+  loadingUnlinked.value = true;
+  try {
+    unlinked.value = (await fetchUnlinkedLogistics({ company: filterCompany.value, ship_date: filterDate.value })).records;
+  } finally {
+    loadingUnlinked.value = false;
+  }
+}
+
+function toggleUnlinked() {
+  unlinkedMode.value = !unlinkedMode.value;
+  if (unlinkedMode.value) {
+    loadUnlinked();
+  }
 }
 
 onMounted(load);
@@ -42,7 +77,7 @@ onMounted(load);
 function openCreate() {
   editing.value = false;
   editingId.value = null;
-  form.value = { company_name: filterCompany.value || "", ship_date: new Date().toISOString().slice(0, 10), waybill_no: "", weight_kg: "", package_count: "", note: "" };
+  form.value = { company_name: filterCompany.value || "", ship_date: new Date().toISOString().slice(0, 10), waybill_no: "", courier: "中通", weight_kg: "", package_count: "", note: "" };
   formDialog.value = true;
 }
 
@@ -53,6 +88,7 @@ async function openEdit(record) {
     company_name: record.company_name,
     ship_date: record.ship_date,
     waybill_no: record.waybill_no,
+    courier: record.courier || "中通",
     weight_kg: record.weight_kg,
     package_count: record.package_count,
     note: record.note,
@@ -80,6 +116,48 @@ async function save() {
     ElMessage.error(err.message);
   } finally {
     saving.value = false;
+  }
+}
+
+function openLink(report) {
+  linkForm.value = { report_id: report.id, courier: "中通", waybill_no: "", weight_kg: 0, package_count: 0, note: "" };
+  linkDialog.value = true;
+}
+
+async function saveLink() {
+  if (!linkForm.value.waybill_no.trim()) {
+    ElMessage.warning("请填写快递单号");
+    return;
+  }
+  linking.value = true;
+  try {
+    await quickLinkLogistics(linkForm.value);
+    ElMessage.success("已创建快递单并挂靠");
+    linkDialog.value = false;
+    await load();
+  } catch (err) {
+    ElMessage.error(err.message);
+  } finally {
+    linking.value = false;
+  }
+}
+
+function openReason(report) {
+  reasonForm.value = { report_id: report.id, reason: report.unlinked_reason || "" };
+  reasonDialog.value = true;
+}
+
+async function saveReason() {
+  savingReason.value = true;
+  try {
+    await setUnlinkedReason(reasonForm.value.report_id, reasonForm.value.reason);
+    ElMessage.success("已保存");
+    reasonDialog.value = false;
+    await load();
+  } catch (err) {
+    ElMessage.error(err.message);
+  } finally {
+    savingReason.value = false;
   }
 }
 
@@ -154,6 +232,7 @@ function reportQty(report) {
         <el-input v-model="filterCompany" placeholder="公司筛选" clearable style="width:180px" @keyup.enter="load" />
         <el-date-picker v-model="filterDate" type="date" value-format="YYYY-MM-DD" placeholder="日期筛选" style="width:160px" @change="load" />
         <el-button type="primary" :loading="loading" @click="load">查询</el-button>
+        <el-button :type="unlinkedMode ? 'warning' : 'default'" plain @click="toggleUnlinked">只看未挂靠发货</el-button>
         <el-button type="primary" plain @click="openCreate">新增快递单</el-button>
       </div>
 
@@ -161,6 +240,7 @@ function reportQty(report) {
         <el-table-column prop="ship_date" label="发货日期" width="110" />
         <el-table-column prop="company_name" label="公司" width="130" />
         <el-table-column prop="waybill_no" label="快递单号" min-width="150" />
+        <el-table-column prop="courier" label="快递公司" width="100" />
         <el-table-column label="重量(kg)" width="100" align="right">
           <template #default="{ row }">{{ row.weight_kg }}</template>
         </el-table-column>
@@ -183,6 +263,33 @@ function reportQty(report) {
       </el-table>
     </div>
 
+    <div v-if="unlinkedMode" class="section-card">
+      <h2 style="margin:0 0 12px">未挂靠发货（{{ unlinked.length }} 条）</h2>
+      <el-table :data="unlinked" v-loading="loadingUnlinked" border size="small">
+        <el-table-column prop="ship_date" label="发货日期" width="110" />
+        <el-table-column prop="company_name" label="公司" width="130" />
+        <el-table-column prop="style_name" label="款式" min-width="150" />
+        <el-table-column label="件数" width="80" align="right">
+          <template #default="{ row }">{{ row.quantity }}</template>
+        </el-table-column>
+        <el-table-column label="渠道" width="110">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.channel === '待确认' ? 'warning' : 'success'">{{ row.channel }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="unlinked_reason" label="未挂原因" min-width="140">
+          <template #default="{ row }">{{ row.unlinked_reason || "—" }}</template>
+        </el-table-column>
+        <el-table-column prop="note" label="备注" min-width="160" show-overflow-tooltip />
+        <el-table-column label="操作" width="170" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" link @click="openLink(row)">填单挂靠</el-button>
+            <el-button size="small" link @click="openReason(row)">标原因</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
     <el-dialog v-model="formDialog" :title="editing ? '编辑快递单' : '新增快递单'" width="520px">
       <el-form label-width="90px">
         <el-form-item label="公司">
@@ -193,6 +300,11 @@ function reportQty(report) {
         </el-form-item>
         <el-form-item label="快递单号">
           <el-input v-model="form.waybill_no" placeholder="例如 800209579798" />
+        </el-form-item>
+        <el-form-item label="快递公司">
+          <el-select v-model="form.courier" style="width:100%">
+            <el-option v-for="c in COURIER_OPTIONS" :key="c" :label="c" :value="c" />
+          </el-select>
         </el-form-item>
         <el-form-item label="重量(kg)">
           <el-input-number v-model="form.weight_kg" :min="0" :precision="1" :step="0.1" style="width:100%" />
@@ -215,6 +327,7 @@ function reportQty(report) {
         <div class="stat-cards" style="margin-bottom:14px">
           <div class="stat-card"><div class="label">公司</div><div class="value" style="font-size:18px">{{ detail.company_name }}</div></div>
           <div class="stat-card"><div class="label">发货日期</div><div class="value" style="font-size:18px">{{ detail.ship_date }}</div></div>
+          <div class="stat-card"><div class="label">快递公司</div><div class="value" style="font-size:18px">{{ detail.courier || "中通" }}</div></div>
           <div class="stat-card"><div class="label">重量</div><div class="value" style="font-size:18px">{{ detail.weight_kg }} kg</div></div>
           <div class="stat-card"><div class="label">件数</div><div class="value" style="font-size:18px">{{ detail.package_count }} 包</div></div>
           <div class="stat-card"><div class="label">关联发货</div><div class="value" style="font-size:18px">{{ detail.linked_count }} 笔 / {{ detail.linked_qty }} 件</div></div>
@@ -256,6 +369,44 @@ function reportQty(report) {
           </el-table>
           <el-button size="small" type="primary" style="margin-top:10px" @click="addCandidates">加入这笔快递</el-button>
         </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="linkDialog" title="填单挂靠" width="480px">
+      <el-form label-width="90px">
+        <el-form-item label="快递公司">
+          <el-select v-model="linkForm.courier" style="width:100%">
+            <el-option v-for="c in COURIER_OPTIONS" :key="c" :label="c" :value="c" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="快递单号">
+          <el-input v-model="linkForm.waybill_no" placeholder="例如 800209579798 或顺丰单号" />
+        </el-form-item>
+        <el-form-item label="重量(kg)">
+          <el-input-number v-model="linkForm.weight_kg" :min="0" :precision="1" :step="0.1" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="件数">
+          <el-input-number v-model="linkForm.package_count" :min="0" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="linkForm.note" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="linkDialog = false">取消</el-button>
+        <el-button type="primary" :loading="linking" @click="saveLink">创建并挂靠</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="reasonDialog" title="标未挂原因" width="480px">
+      <el-form label-width="90px">
+        <el-form-item label="未挂原因">
+          <el-input v-model="reasonForm.reason" type="textarea" :rows="3" placeholder="例如：货拉拉无单号 / 中通单号待补" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reasonDialog = false">取消</el-button>
+        <el-button type="primary" :loading="savingReason" @click="saveReason">保存</el-button>
       </template>
     </el-dialog>
   </div>

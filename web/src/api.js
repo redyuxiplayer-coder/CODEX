@@ -203,3 +203,20 @@ export function fetchLogisticsCandidates(company, shipDate) {
   const query = new URLSearchParams({ company, ship_date: shipDate });
   return request(`/api/v1/logistics/candidates?${query}`);
 }
+
+export function fetchUnlinkedLogistics(params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  const suffix = query.toString() ? `?${query}` : "";
+  return request(`/api/v1/logistics/unlinked${suffix}`);
+}
+
+export function quickLinkLogistics(data) {
+  return postForm("/api/v1/logistics/quick-link", data);
+}
+
+export function setUnlinkedReason(reportId, reason) {
+  return postForm(`/api/v1/shipments/${reportId}/unlinked-reason`, { reason });
+}

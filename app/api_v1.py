@@ -28,7 +28,10 @@ from app.services.logistics import (
     delete_waybill_record,
     link_candidates,
     link_reports_to_waybill,
+    list_unlinked_reports,
     list_waybill_records,
+    quick_link_waybill,
+    set_unlinked_reason,
     unlink_report_from_waybill,
     update_waybill_record,
 )
@@ -248,6 +251,7 @@ def _waybill_dict(record: WaybillRecord) -> dict:
         "company_name": record.company_name,
         "ship_date": record.ship_date,
         "waybill_no": record.waybill_no,
+        "courier": record.courier,
         "weight_kg": record.weight_kg,
         "package_count": record.package_count,
         "note": record.note,
@@ -912,12 +916,63 @@ def api_logistics_list(
     }
 
 
+@router.get("/logistics/unlinked")
+def api_logistics_unlinked(
+    request: Request,
+    company: str = "",
+    ship_date: str = "",
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    return {
+        "records": list_unlinked_reports(session, company, ship_date),
+    }
+
+
+@router.post("/logistics/quick-link")
+def api_logistics_quick_link(
+    request: Request,
+    report_id: int = Form(...),
+    courier: str = Form("中通"),
+    waybill_no: str = Form(...),
+    weight_kg: float = Form(0),
+    package_count: int = Form(0),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    record = quick_link_waybill(
+        session,
+        admin.id,
+        report_id,
+        courier,
+        waybill_no,
+        weight_kg,
+        package_count,
+        note,
+    )
+    return _waybill_dict(record)
+
+
+@router.post("/shipments/{report_id}/unlinked-reason")
+def api_shipment_unlinked_reason(
+    request: Request,
+    report_id: int,
+    reason: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    set_unlinked_reason(session, report_id, reason)
+    return {"ok": True}
+
+
 @router.post("/logistics")
 def api_logistics_create(
     request: Request,
     company_name: str = Form(...),
     ship_date: str = Form(...),
     waybill_no: str = Form(...),
+    courier: str = Form("中通"),
     weight_kg: float = Form(0),
     package_count: int = Form(0),
     note: str = Form(""),
@@ -930,6 +985,7 @@ def api_logistics_create(
         company_name,
         ship_date,
         waybill_no,
+        courier,
         weight_kg,
         package_count,
         note,
@@ -960,6 +1016,7 @@ def api_logistics_update(
     company_name: str = Form(...),
     ship_date: str = Form(...),
     waybill_no: str = Form(...),
+    courier: str = Form("中通"),
     weight_kg: float = Form(0),
     package_count: int = Form(0),
     note: str = Form(""),
@@ -972,6 +1029,7 @@ def api_logistics_update(
         company_name=company_name,
         ship_date=ship_date,
         waybill_no=waybill_no,
+        courier=courier,
         weight_kg=weight_kg,
         package_count=package_count,
         note=note,
