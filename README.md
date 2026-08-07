@@ -4,7 +4,7 @@
 
 ## 部署现状
 
-- 正式环境：腾讯云 Lighthouse（`139.155.144.14`），systemd 服务 `zy-shipping`
+- 正式环境：腾讯云 Lighthouse，systemd 服务 `zy-shipping`
 - 数据库：PostgreSQL `zy_shipping`（应用账号 `zy_shipping`；表结构由 postgres 管理员维护，迁移见下方「数据库变更」）
 - 管理端：Vue 3 + Element Plus，部署在 `/app`（电脑端、手机端浏览器均可访问）
 - 手机端：服务端渲染页面 `/mobile`（员工发货上报）
@@ -13,8 +13,10 @@
 
 ## 访问入口
 
-- 管理端：`http://139.155.144.14/app`
-- 手机端：`http://139.155.144.14/mobile/login`
+部署后通过服务器 IP 或域名访问：
+
+- 管理端：`http://<服务器地址>/app`
+- 手机端：`http://<服务器地址>/mobile/login`
 
 ## 功能
 
