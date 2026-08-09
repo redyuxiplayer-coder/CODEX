@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -27,14 +27,56 @@ class Company(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    code: Mapped[str] = mapped_column(String(40), default="", index=True)
+    next_order_sequence: Mapped[int] = mapped_column(Integer, default=1)
     note: Mapped[str] = mapped_column(Text, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Spu(Base):
+    __tablename__ = "spus"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    product_name: Mapped[str] = mapped_column(String(160), index=True)
+    style_name: Mapped[str] = mapped_column(String(160), index=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class SalesOrder(Base):
+    __tablename__ = "sales_orders"
+    __table_args__ = (
+        UniqueConstraint("company_id", "company_sequence", name="uq_sales_orders_company_sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    system_order_no: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    customer_order_no: Mapped[str] = mapped_column(String(160), default="", index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    company_sequence: Mapped[int] = mapped_column(Integer)
+    spu_id: Mapped[int] = mapped_column(ForeignKey("spus.id"), index=True)
+    product_name: Mapped[str] = mapped_column(String(160))
+    style_name: Mapped[str] = mapped_column(String(160))
+    color_name: Mapped[str] = mapped_column(String(120), default="")
+    color_code: Mapped[str] = mapped_column(String(40), default="")
+    order_date: Mapped[str] = mapped_column(String(30), index=True)
+    delivery_date: Mapped[str] = mapped_column(String(80), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+    company: Mapped[Company] = relationship()
+    spu: Mapped[Spu] = relationship()
+    lines: Mapped[list["OrderLine"]] = relationship(back_populates="order")
 
 
 class OrderLine(Base):
     __tablename__ = "order_lines"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), nullable=True, index=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
     product_name: Mapped[str] = mapped_column(String(160), index=True)
     style_name: Mapped[str] = mapped_column(String(160), index=True)
@@ -45,10 +87,12 @@ class OrderLine(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     batch: Mapped[str] = mapped_column(String(160), default="")
     sku: Mapped[str] = mapped_column(String(255), default="", index=True)
+    customer_sku: Mapped[str] = mapped_column(String(255), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
     company: Mapped[Company] = relationship()
+    order: Mapped[SalesOrder | None] = relationship(back_populates="lines")
 
 
 class SkuMapping(Base):
@@ -84,6 +128,7 @@ class ShipmentReport(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), nullable=True, index=True)
     ship_date: Mapped[str] = mapped_column(String(30), index=True)
     company_name: Mapped[str] = mapped_column(String(120), index=True)
     product_name: Mapped[str] = mapped_column(String(160), index=True)
@@ -97,6 +142,7 @@ class ShipmentReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
 
     user: Mapped[User] = relationship()
+    order: Mapped[SalesOrder | None] = relationship()
     lines: Mapped[list["ShipmentLine"]] = relationship(cascade="all, delete-orphan")
     photos: Mapped[list["ShipmentPhoto"]] = relationship(cascade="all, delete-orphan")
     waybill: Mapped["WaybillRecord | None"] = relationship(back_populates="reports")
@@ -183,6 +229,7 @@ class PackingDraft(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), nullable=True, index=True)
     submitted_report_id: Mapped[int | None] = mapped_column(ForeignKey("shipment_reports.id"), nullable=True, index=True)
     pack_date: Mapped[str] = mapped_column(String(30), index=True)
     company_name: Mapped[str] = mapped_column(String(120), index=True)
@@ -195,6 +242,7 @@ class PackingDraft(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
     user: Mapped[User] = relationship()
+    order: Mapped[SalesOrder | None] = relationship()
     lines: Mapped[list["PackingDraftLine"]] = relationship(cascade="all, delete-orphan")
     photos: Mapped[list["PackingDraftPhoto"]] = relationship(cascade="all, delete-orphan")
 

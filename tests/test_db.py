@@ -40,6 +40,22 @@ def test_new_ledger_tables_and_columns_are_registered():
     assert "waybill_no" in report_columns
 
 
+def test_formal_order_tables_and_columns_are_registered():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+
+    assert {"spus", "sales_orders"}.issubset(inspector.get_table_names())
+    company_columns = {c["name"] for c in inspector.get_columns("companies")}
+    assert {"code", "next_order_sequence"}.issubset(company_columns)
+    order_line_columns = {c["name"] for c in inspector.get_columns("order_lines")}
+    assert {"order_id", "customer_sku"}.issubset(order_line_columns)
+    draft_columns = {c["name"] for c in inspector.get_columns("packing_drafts")}
+    assert "order_id" in draft_columns
+    report_columns = {c["name"] for c in inspector.get_columns("shipment_reports")}
+    assert "order_id" in report_columns
+
+
 def test_waybill_table_and_link_column_registered():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
