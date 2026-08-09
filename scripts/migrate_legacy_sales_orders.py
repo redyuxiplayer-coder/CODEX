@@ -6,6 +6,7 @@ numbers. Apply mode accepts only values present in the reviewed decision file.
 
 import argparse
 import json
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -311,16 +312,29 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def database_url_for_cli(database: str | None, database_url_env: str | None) -> str:
+    if bool(database) == bool(database_url_env):
+        raise ValueError("必须且只能选择 SQLite 文件或数据库环境变量")
+    if database_url_env:
+        database_url = os.environ.get(database_url_env, "").strip()
+        if not database_url:
+            raise ValueError(f"环境变量 {database_url_env} 未设置")
+        return database_url
+    database_path = Path(str(database)).resolve()
+    return f"sqlite:///{database_path.as_posix()}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="历史正式订单预览与人工确认迁移")
-    parser.add_argument("--database", required=True, help="SQLite 数据库文件")
+    database_source = parser.add_mutually_exclusive_group(required=True)
+    database_source.add_argument("--database", help="SQLite 数据库文件")
+    database_source.add_argument("--database-url-env", help="从指定环境变量读取数据库 URL")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--preview", help="写入只读预览 JSON")
     mode.add_argument("--apply", help="读取人工确认决定 JSON 并执行")
     parser.add_argument("--audit", help="执行后审计 JSON 输出路径")
     args = parser.parse_args()
-    database_path = Path(args.database).resolve()
-    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    engine = create_engine(database_url_for_cli(args.database, args.database_url_env))
     SessionLocal = sessionmaker(bind=engine)
     with SessionLocal() as session:
         if args.preview:

@@ -1,5 +1,5 @@
 from app.models import Company, OrderLine, SalesOrder, ShipmentLine, ShipmentReport, User
-from scripts.migrate_legacy_sales_orders import apply_decisions, preview_legacy_orders
+from scripts.migrate_legacy_sales_orders import apply_decisions, database_url_for_cli, preview_legacy_orders
 
 
 def _line(db_session, company, product, style, size, order_date="", batch=""):
@@ -16,6 +16,12 @@ def _line(db_session, company, product, style, size, order_date="", batch=""):
     db_session.add(row)
     db_session.flush()
     return row
+
+
+def test_database_url_for_cli_reads_production_url_from_named_environment(monkeypatch):
+    monkeypatch.setenv("SUPABASE_DATABASE_URL", "postgresql+psycopg://example.invalid/db")
+
+    assert database_url_for_cli(None, "SUPABASE_DATABASE_URL") == "postgresql+psycopg://example.invalid/db"
 
 
 def test_preview_groups_sizes_without_guessing_color_and_flags_missing_date(db_session):
