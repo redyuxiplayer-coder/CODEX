@@ -12,6 +12,7 @@ outputs/
 tmp/
 _cleanup_archive/
 .agents/
+/.worktrees/
 tools/
 docs/
 scripts/legacy_excel_repair/
