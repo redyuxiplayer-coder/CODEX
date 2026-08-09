@@ -36,7 +36,10 @@ async function doLogout() {
       <nav>
         <router-link to="/dashboard">首页</router-link>
         <router-link to="/orders/new">新增订单</router-link>
-        <router-link to="/orders">订单查询</router-link>
+        <router-link to="/sales-orders">正式订单</router-link>
+        <router-link to="/orders">订单余额</router-link>
+        <router-link to="/companies">公司代码</router-link>
+        <router-link to="/spus">内部 SPU</router-link>
         <router-link to="/review">待审核</router-link>
         <router-link to="/shipments">发货明细</router-link>
         <router-link to="/daily-stats">每日统计</router-link>

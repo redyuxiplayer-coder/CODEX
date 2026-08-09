@@ -14,6 +14,10 @@ import Users from "./views/Users.vue";
 import Logs from "./views/Logs.vue";
 import WorkInfo from "./views/WorkInfo.vue";
 import Logistics from "./views/Logistics.vue";
+import Companies from "./views/Companies.vue";
+import Spus from "./views/Spus.vue";
+import SalesOrders from "./views/SalesOrders.vue";
+import SalesOrderDetail from "./views/SalesOrderDetail.vue";
 
 const routes = [
   { path: "/", redirect: "/dashboard" },
@@ -22,6 +26,10 @@ const routes = [
   { path: "/orders", component: Orders },
   { path: "/order-lines/:id", component: OrderLine, props: true },
   { path: "/orders/new", component: NewOrder },
+  { path: "/companies", component: Companies },
+  { path: "/spus", component: Spus },
+  { path: "/sales-orders", component: SalesOrders },
+  { path: "/sales-orders/:id", component: SalesOrderDetail, props: true },
   { path: "/review", component: Review },
   { path: "/shipments", component: Shipments },
   { path: "/skus", component: Skus },

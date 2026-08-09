@@ -50,6 +50,51 @@ export function postFormData(path, formData) {
   return request(path, { method: "POST", body: formData });
 }
 
+export function postJson(path, data) {
+  return request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function fetchCompanies() {
+  return request("/api/v1/companies");
+}
+
+export function updateCompanyCode(companyId, code) {
+  return postJson(`/api/v1/companies/${companyId}/code`, { code });
+}
+
+export function fetchSpus(q = "") {
+  return request(`/api/v1/spus${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+
+export function createSpu(data) {
+  return postJson("/api/v1/spus", data);
+}
+
+export function updateSpu(spuId, data) {
+  return postJson(`/api/v1/spus/${spuId}/update`, data);
+}
+
+export function fetchSalesOrders(params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  const suffix = query.toString() ? `?${query}` : "";
+  return request(`/api/v1/sales-orders${suffix}`);
+}
+
+export function fetchSalesOrder(orderId) {
+  return request(`/api/v1/sales-orders/${orderId}`);
+}
+
+export function createSalesOrder(data) {
+  return postJson("/api/v1/sales-orders", data);
+}
+
 export function fetchDashboard() {
   return request("/api/v1/dashboard");
 }
