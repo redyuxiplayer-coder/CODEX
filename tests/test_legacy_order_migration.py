@@ -95,3 +95,144 @@ def test_apply_numbers_each_company_independently_in_stable_date_order(db_sessio
     assert audit["order_line_count"] == 3
     assert audit["grouped_order_line_count"] == 3
     assert audit["unconfirmed_group_count"] == 0
+
+
+def test_apply_allows_legacy_aliases_to_share_one_canonical_spu(db_session):
+    first_company = Company(name="源兴发", code="")
+    second_company = Company(name="广东茉莉", code="")
+    db_session.add_all([first_company, second_company])
+    db_session.flush()
+    first = _line(db_session, first_company, "僵尸棒球", "僵尸棒球男款", "S", "2026-06-10")
+    second = _line(db_session, second_company, "僵尸棒球", "棒球男", "M", "2026-05-22")
+    db_session.commit()
+
+    decisions = [
+        {
+            "order_line_ids": [first.id],
+            "company_code": "YXF",
+            "spu_code": "JSBQ",
+            "product_name": "僵尸棒球",
+            "style_name": "男款",
+            "color_name": "",
+            "color_code": "",
+            "order_date": "2026-06-10",
+        },
+        {
+            "order_line_ids": [second.id],
+            "company_code": "ML",
+            "spu_code": "JSBQ",
+            "product_name": "僵尸棒球",
+            "style_name": "男款",
+            "color_name": "",
+            "color_code": "",
+            "order_date": "2026-05-22",
+        },
+    ]
+
+    apply_decisions(db_session, decisions)
+
+    orders = db_session.query(SalesOrder).order_by(SalesOrder.id).all()
+    assert {order.spu.code for order in orders} == {"JSBQ"}
+    assert {(order.product_name, order.style_name) for order in orders} == {("僵尸棒球", "男款")}
+
+
+def test_apply_writes_reviewed_customer_sku_only_to_named_order_line(db_session):
+    company = Company(name="源兴发", code="")
+    db_session.add(company)
+    db_session.flush()
+    small = _line(db_session, company, "小红帽", "小红帽男款", "S", "2026-06-10")
+    extra_large = _line(db_session, company, "小红帽", "小红帽男款", "XL", "2026-06-10")
+    db_session.commit()
+
+    apply_decisions(
+        db_session,
+        [
+            {
+                "order_line_ids": [small.id, extra_large.id],
+                "company_code": "YXF",
+                "spu_code": "XHHM",
+                "product_name": "小红帽",
+                "style_name": "男款",
+                "color_name": "",
+                "color_code": "",
+                "order_date": "2026-06-10",
+                "customer_skus": {str(extra_large.id): "FZWS1209004-04-Red and white stripes-XL"},
+            }
+        ],
+    )
+
+    db_session.refresh(small)
+    db_session.refresh(extra_large)
+    assert small.customer_sku == ""
+    assert extra_large.customer_sku == "FZWS1209004-04-Red and white stripes-XL"
+
+
+def test_apply_binds_historical_unbound_shipment_line_when_match_is_unique(db_session):
+    company = Company(name="源兴发", code="")
+    worker = User(username="legacy_worker", display_name="仓库", password_hash="x", role="worker")
+    db_session.add_all([company, worker])
+    db_session.flush()
+    order_line = _line(db_session, company, "小偷", "小偷女款", "S", "2026-06-10")
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-06-20",
+        company_name=company.name,
+        product_name="小偷",
+        style_name="小偷女款",
+        status="auto_approved",
+    )
+    db_session.add(report)
+    db_session.flush()
+    shipment_line = ShipmentLine(report_id=report.id, order_line_id=None, size="S", quantity=10)
+    db_session.add(shipment_line)
+    db_session.commit()
+
+    audit = apply_decisions(
+        db_session,
+        [
+            {
+                "order_line_ids": [order_line.id],
+                "company_code": "YXF",
+                "spu_code": "XTF",
+                "product_name": "小偷",
+                "style_name": "女款",
+                "color_name": "",
+                "color_code": "",
+                "order_date": "2026-06-10",
+            }
+        ],
+    )
+
+    db_session.refresh(report)
+    db_session.refresh(shipment_line)
+    assert shipment_line.order_line_id == order_line.id
+    assert report.order_id == order_line.order_id
+    assert audit["uniquely_matched_shipment_line_count"] == 1
+
+
+def test_apply_corrects_reviewed_legacy_size_value(db_session):
+    company = Company(name="张鹏", code="")
+    db_session.add(company)
+    db_session.flush()
+    order_line = _line(db_session, company, "围裙", "围裙", "4件套", "2026-04-29")
+    db_session.commit()
+
+    apply_decisions(
+        db_session,
+        [
+            {
+                "order_line_ids": [order_line.id],
+                "company_code": "ZP",
+                "spu_code": "WQ4",
+                "product_name": "围裙",
+                "style_name": "四件套",
+                "color_name": "",
+                "color_code": "",
+                "order_date": "2026-04-29",
+                "size_overrides": {str(order_line.id): "均码"},
+            }
+        ],
+    )
+
+    db_session.refresh(order_line)
+    assert order_line.size == "均码"

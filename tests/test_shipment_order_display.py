@@ -3,7 +3,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from app.api_v1 import _report_dict
-from app.models import Company, Spu, User
+from app.models import Company, ShipmentLine, ShipmentReport, Spu, User
 from app.services.exports import export_daily_shipments_workbook
 from app.services.logistics import list_unlinked_reports
 from app.services.sales_orders import create_sales_order
@@ -51,6 +51,46 @@ def test_shipment_api_payload_includes_formal_order_identity(db_session):
     assert payload["color_name"] == "红色"
     assert payload["spu_code"] == "JS"
     assert payload["lines"][0]["customer_sku"] == "FZB1209001-01-red-S"
+
+
+def test_historical_cross_order_report_lists_each_line_order_identity(db_session):
+    first_order, _report = _formal_shipment(db_session)
+    second_order = create_sales_order(
+        db_session,
+        first_order.company_id,
+        first_order.spu_id,
+        "紫色",
+        "PURPLE",
+        "2026-08-11",
+        [{"size": "M", "quantity": 100, "customer_sku": ""}],
+    )
+    historical = ShipmentReport(
+        user_id=_report.user_id,
+        ship_date="2026-08-12",
+        company_name="源兴发",
+        product_name="啦啦队",
+        style_name="僵尸啦啦队",
+        status="auto_approved",
+    )
+    db_session.add(historical)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ShipmentLine(report_id=historical.id, order_line_id=first_order.lines[0].id, size="S", quantity=5),
+            ShipmentLine(report_id=historical.id, order_line_id=second_order.lines[0].id, size="M", quantity=6),
+        ]
+    )
+    db_session.commit()
+
+    payload = _report_dict(historical)
+
+    assert payload["order_id"] is None
+    assert payload["system_order_no"] == "YXF-00001-JS-RED / YXF-00002-JS-PURPLE"
+    assert [line["system_order_no"] for line in payload["lines"]] == [
+        "YXF-00001-JS-RED",
+        "YXF-00002-JS-PURPLE",
+    ]
+    assert [line["order_date"] for line in payload["lines"]] == ["2026-08-09", "2026-08-11"]
 
 
 def test_unlinked_logistics_row_includes_system_order_number(db_session):

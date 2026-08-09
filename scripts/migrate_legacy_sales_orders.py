@@ -155,18 +155,49 @@ def apply_decisions(session: Session, decisions: list[dict]) -> dict:
         company_code = normalize_code(decision.get("company_code", ""))
         spu_code = normalize_code(decision.get("spu_code", ""))
         order_date = str(decision.get("order_date", "")).strip()
+        product_name = str(decision.get("product_name", rows[0].product_name)).strip()
+        style_name = str(decision.get("style_name", rows[0].style_name)).strip()
         color_name = str(decision.get("color_name", "")).strip()
         color_code_raw = str(decision.get("color_code", "")).strip()
         color_code = normalize_code(color_code_raw) if color_code_raw else ""
-        if not company_code or not spu_code or not order_date:
-            raise ValueError("公司代码、SPU 编码和下单日期必须明确填写")
+        if not company_code or not spu_code or not product_name or not style_name or not order_date:
+            raise ValueError("公司代码、SPU 编码、产品、款式和下单日期必须明确填写")
         if bool(color_name) != bool(color_code):
             raise ValueError("颜色名称和颜色编码必须同时填写或同时留空")
         company = rows[0].company
         prior = company_codes.setdefault(company.id, company_code)
         if prior != company_code:
             raise ValueError("同一公司的公司代码必须一致")
-        prepared.append((company.id, order_date, min(row.id for row in rows), decision, rows, company_code, spu_code, color_name, color_code))
+        raw_customer_skus = decision.get("customer_skus", {})
+        if not isinstance(raw_customer_skus, dict):
+            raise ValueError("客户 SKU 必须按订单行 ID 填写")
+        row_ids = {row.id for row in rows}
+        customer_skus = {int(row_id): str(value).strip() for row_id, value in raw_customer_skus.items()}
+        if not set(customer_skus).issubset(row_ids):
+            raise ValueError("客户 SKU 只能填写到当前决定分组中的订单行")
+        raw_size_overrides = decision.get("size_overrides", {})
+        if not isinstance(raw_size_overrides, dict):
+            raise ValueError("尺码修正必须按订单行 ID 填写")
+        size_overrides = {int(row_id): str(value).strip() for row_id, value in raw_size_overrides.items()}
+        if not set(size_overrides).issubset(row_ids) or any(not value for value in size_overrides.values()):
+            raise ValueError("尺码修正只能填写到当前决定分组中的订单行，且不能为空")
+        prepared.append(
+            (
+                company.id,
+                order_date,
+                min(row.id for row in rows),
+                decision,
+                rows,
+                company_code,
+                spu_code,
+                product_name,
+                style_name,
+                color_name,
+                color_code,
+                customer_skus,
+                size_overrides,
+            )
+        )
 
     if len(decided_ids) != len(set(decided_ids)):
         raise ValueError("同一订单行不能出现在多个决定分组")
@@ -185,14 +216,14 @@ def apply_decisions(session: Session, decisions: list[dict]) -> dict:
     session.flush()
 
     line_to_order = {}
-    for company_id, order_date, _min_id, decision, rows, _company_code, spu_code, color_name, color_code in sorted(prepared, key=lambda item: (item[0], item[1], item[2])):
+    for company_id, order_date, _min_id, decision, rows, _company_code, spu_code, product_name, style_name, color_name, color_code, customer_skus, _size_overrides in sorted(prepared, key=lambda item: (item[0], item[1], item[2])):
         company = session.get(Company, company_id)
         spu = session.query(Spu).filter(Spu.code == spu_code).one_or_none()
         if spu is None:
-            spu = Spu(code=spu_code, product_name=rows[0].product_name, style_name=rows[0].style_name, is_active=True)
+            spu = Spu(code=spu_code, product_name=product_name, style_name=style_name, is_active=True)
             session.add(spu)
             session.flush()
-        elif (spu.product_name, spu.style_name) != (rows[0].product_name, rows[0].style_name):
+        elif (spu.product_name, spu.style_name) != (product_name, style_name):
             raise ValueError(f"SPU {spu_code} 已属于其他产品或款式")
         sequence = int(company.next_order_sequence or 1)
         system_order_no = build_system_order_no(company.code, sequence, spu.code, color_code)
@@ -202,8 +233,8 @@ def apply_decisions(session: Session, decisions: list[dict]) -> dict:
             company_id=company.id,
             company_sequence=sequence,
             spu_id=spu.id,
-            product_name=rows[0].product_name,
-            style_name=rows[0].style_name,
+            product_name=product_name,
+            style_name=style_name,
             color_name=color_name,
             color_code=color_code,
             order_date=order_date,
@@ -218,7 +249,32 @@ def apply_decisions(session: Session, decisions: list[dict]) -> dict:
             row.order_id = order.id
             row.order_date = order_date
             row.batch = system_order_no
+            if row.id in customer_skus:
+                row.customer_sku = customer_skus[row.id]
             line_to_order[row.id] = order.id
+    session.flush()
+
+    candidate_lines = defaultdict(list)
+    for row in session.query(OrderLine).filter(OrderLine.id.in_(line_to_order)).all():
+        candidate_lines[(row.company.name, row.product_name, row.style_name, row.size)].append(row)
+    uniquely_matched_shipment_lines = 0
+    ambiguous_shipment_lines = 0
+    for report in session.query(ShipmentReport).all():
+        for shipment_line in report.lines:
+            if shipment_line.order_line_id:
+                continue
+            matches = candidate_lines.get(
+                (report.company_name, report.product_name, report.style_name, shipment_line.size),
+                [],
+            )
+            if len(matches) == 1:
+                shipment_line.order_line_id = matches[0].id
+                uniquely_matched_shipment_lines += 1
+            elif len(matches) > 1:
+                ambiguous_shipment_lines += 1
+    for prepared_item in prepared:
+        for row_id, size in prepared_item[-1].items():
+            session.get(OrderLine, row_id).size = size
     session.flush()
 
     cross_order_reports = 0
@@ -242,6 +298,8 @@ def apply_decisions(session: Session, decisions: list[dict]) -> dict:
         "shipment_report_count": session.query(ShipmentReport).count(),
         "bound_shipment_report_count": bound_reports,
         "cross_order_report_count": cross_order_reports,
+        "uniquely_matched_shipment_line_count": uniquely_matched_shipment_lines,
+        "ambiguous_shipment_line_count": ambiguous_shipment_lines,
         "shipment_photo_count": session.query(ShipmentPhoto).count(),
         "waybill_link_count": session.query(ShipmentReport).filter(ShipmentReport.waybill_id.is_not(None)).count(),
         "waybill_record_count": session.query(WaybillRecord).count(),

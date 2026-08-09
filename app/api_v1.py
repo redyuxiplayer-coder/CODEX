@@ -284,15 +284,34 @@ def _unbound_shipment_rows(session: Session, order: OrderLine) -> list[tuple[Shi
 
 
 def _report_dict(report: ShipmentReport) -> dict:
-    order = report.order
+    related_orders = []
+    seen_order_ids = set()
+    if report.order:
+        related_orders.append(report.order)
+        seen_order_ids.add(report.order.id)
+    for line in report.lines:
+        line_order = line.order_line.order if line.order_line else None
+        if line_order and line_order.id not in seen_order_ids:
+            related_orders.append(line_order)
+            seen_order_ids.add(line_order.id)
+
+    def joined_order_value(getter) -> str:
+        values = []
+        for related_order in related_orders:
+            value = getter(related_order)
+            if value and value not in values:
+                values.append(value)
+        return " / ".join(values)
+
     return {
         "id": report.id,
         "order_id": report.order_id,
-        "system_order_no": order.system_order_no if order else "",
-        "customer_order_no": order.customer_order_no if order else "",
-        "order_date": order.order_date if order else "",
-        "color_name": order.color_name if order else "",
-        "spu_code": order.spu.code if order and order.spu else "",
+        "system_order_no": joined_order_value(lambda order: order.system_order_no),
+        "customer_order_no": joined_order_value(lambda order: order.customer_order_no),
+        "order_date": joined_order_value(lambda order: order.order_date),
+        "color_name": joined_order_value(lambda order: order.color_name),
+        "spu_code": joined_order_value(lambda order: order.spu.code if order.spu else ""),
+        "has_multiple_orders": len(related_orders) > 1,
         "ship_date": report.ship_date,
         "created_at": report.created_at.isoformat() if report.created_at else "",
         "user": report.user.display_name if report.user else "",
@@ -308,6 +327,8 @@ def _report_dict(report: ShipmentReport) -> dict:
                 "size": line.size,
                 "quantity": line.quantity,
                 "customer_sku": line.order_line.customer_sku if line.order_line else "",
+                "system_order_no": line.order_line.order.system_order_no if line.order_line and line.order_line.order else "",
+                "order_date": line.order_line.order.order_date if line.order_line and line.order_line.order else "",
             }
             for line in report.lines
         ],
