@@ -13,13 +13,15 @@
     <button>查询</button>
   </form>
   <table>
-    <thead><tr><th>日期</th><th>时间</th><th>员工</th><th>公司</th><th>产品</th><th>款式</th><th>尺码数量</th><th>运单号</th><th>审核状态</th><th>原因/处理</th><th>照片</th><th>备注</th></tr></thead>
+    <thead><tr><th>发货日期</th><th>时间</th><th>员工</th><th>系统订单号</th><th>下单日期</th><th>公司</th><th>产品</th><th>款式/颜色</th><th>尺码数量/客户SKU</th><th>运单号</th><th>审核状态</th><th>原因/处理</th><th>照片</th><th>备注</th></tr></thead>
     <tbody>
     {% for r in reports %}
       <tr>
-        <td>{{ r.ship_date }}</td><td>{{ r.created_at.strftime("%m-%d %H:%M") }}</td><td>{{ r.user.display_name }}</td><td>{{ r.company_name }}</td>
-        <td>{{ r.product_name }}</td><td>{{ r.style_name }}</td>
-        <td>{% for l in r.lines %}{{ l.size }} {{ l.quantity }}<br>{% endfor %}</td>
+        <td>{{ r.ship_date }}</td><td>{{ r.created_at.strftime("%m-%d %H:%M") }}</td><td>{{ r.user.display_name }}</td>
+        <td>{% if r.order %}<b>{{ r.order.system_order_no }}</b>{% if r.order.customer_order_no %}<br><small>客户单号：{{ r.order.customer_order_no }}</small>{% endif %}{% else %}历史未绑定{% endif %}</td>
+        <td>{% if r.order %}{{ r.order.order_date }}{% endif %}</td><td>{{ r.company_name }}</td>
+        <td>{{ r.product_name }}</td><td>{{ r.style_name }}{% if r.order and r.order.color_name %}<br>{{ r.order.color_name }}{% endif %}</td>
+        <td>{% for l in r.lines %}{{ l.size }} {{ l.quantity }}{% if l.order_line and l.order_line.customer_sku %}<br><small>{{ l.order_line.customer_sku }}</small>{% endif %}<br>{% endfor %}</td>
         <td>
           <form method="post" action="/admin/shipments/{{ r.id }}/waybill" class="inline-waybill-form">
             <input name="waybill_no" value="{{ r.waybill_no or '' }}" placeholder="运单号">

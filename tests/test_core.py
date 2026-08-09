@@ -225,7 +225,7 @@ def test_customer_company_export_hides_internal_review_fields(db_session, tmp_pa
     assert wb.sheetnames == ["客户发货明细", "发货明细"]
     ws = wb["客户发货明细"]
     headers = [cell.value for cell in ws[1]]
-    assert headers == ["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号"]
+    assert headers == ["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号", "客户SKU"]
     visible_headers = [header for header in headers if header]
     assert "上报人" not in visible_headers
     assert "状态" not in visible_headers

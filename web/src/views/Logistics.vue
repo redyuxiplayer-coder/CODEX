@@ -242,6 +242,9 @@ function reportQty(report) {
 
       <el-table v-if="!unlinkedMode" :data="records" v-loading="loading" border size="small">
         <el-table-column prop="ship_date" label="发货日期" width="110" />
+        <el-table-column prop="system_order_no" label="系统订单号" min-width="180">
+          <template #default="{ row }">{{ row.system_order_no || "历史未绑定" }}<div class="muted" v-if="row.order_date">下单 {{ row.order_date }}</div></template>
+        </el-table-column>
         <el-table-column prop="company_name" label="公司" width="130" />
         <el-table-column prop="waybill_no" label="快递单号" min-width="150" />
         <el-table-column prop="courier" label="快递公司" width="100" />
@@ -340,6 +343,9 @@ function reportQty(report) {
         <h2 style="margin:0 0 10px;font-size:15px">这笔快递装的货</h2>
         <el-table :data="detail.reports" border size="small" max-height="280">
           <el-table-column prop="ship_date" label="发货日期" width="110" />
+          <el-table-column prop="system_order_no" label="系统订单号" min-width="180">
+            <template #default="{ row }">{{ row.system_order_no || "历史未绑定" }}</template>
+          </el-table-column>
           <el-table-column prop="company" label="公司" width="120" />
           <el-table-column prop="style" label="款式" min-width="150" />
           <el-table-column label="尺码数量" min-width="140">
@@ -363,6 +369,9 @@ function reportQty(report) {
           </div>
           <el-table :data="candidates" border size="small" max-height="220" @selection-change="(rows) => (selectedCandidates = rows.map((r) => r.id))">
             <el-table-column type="selection" width="45" />
+            <el-table-column prop="system_order_no" label="系统订单号" min-width="180">
+              <template #default="{ row }">{{ row.system_order_no || "历史未绑定" }}</template>
+            </el-table-column>
             <el-table-column prop="style" label="款式" min-width="150" />
             <el-table-column label="尺码数量" min-width="140">
               <template #default="{ row }">{{ reportLineText(row) }}</template>

@@ -40,12 +40,13 @@ def test_customer_export_uses_waybill_number_and_detail_sheet(db_session, tmp_pa
     assert wb.sheetnames == ["客户发货明细", "发货明细"]
     main = wb["客户发货明细"]
     headers = [cell.value for cell in main[1]]
-    assert headers == ["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号"]
+    assert headers == ["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号", "客户SKU"]
     values = [cell.value for cell in main[2]]
     assert values[9] == "800209579798"
     detail = wb["发货明细"]
     detail_headers = [cell.value for cell in detail[1]]
-    assert detail_headers == ["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号"]
+    assert detail_headers[:7] == ["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号"]
+    assert detail_headers[7:] == ["系统订单号", "客户订单号", "下单日期", "颜色", "SPU", "客户SKU"]
     detail_row = [cell.value for cell in detail[2]]
     assert detail_row[0] == "2026-07-17"
     assert detail_row[5] == 50
@@ -66,4 +67,5 @@ def test_internal_export_shows_waybill_number_not_photos(db_session, tmp_path: P
     assert "快递单号" in headers
     assert "快递面单" not in headers
     rows = [[cell.value for cell in row] for row in ws.iter_rows(min_row=2)]
-    assert any(row[-1] == "800209579798" for row in rows)
+    waybill_index = headers.index("快递单号")
+    assert any(row[waybill_index] == "800209579798" for row in rows)

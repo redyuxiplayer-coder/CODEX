@@ -159,9 +159,15 @@ def list_unlinked_reports(
     rows = query.order_by(ShipmentReport.ship_date, ShipmentReport.id).all()
     result = []
     for report in rows:
+        order = report.order
         result.append(
             {
                 "id": report.id,
+                "order_id": report.order_id,
+                "system_order_no": order.system_order_no if order else "",
+                "customer_order_no": order.customer_order_no if order else "",
+                "order_date": order.order_date if order else "",
+                "color_name": order.color_name if order else "",
                 "company_name": report.company_name,
                 "ship_date": report.ship_date,
                 "style_name": report.style_name,

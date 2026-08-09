@@ -66,12 +66,21 @@ async function uploadPhotos(row, event) {
           <template #default="{ row }">{{ new Date(row.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) }}</template>
         </el-table-column>
         <el-table-column prop="user" label="员工" width="85" />
+        <el-table-column label="订单" min-width="180">
+          <template #default="{ row }">
+            <b>{{ row.system_order_no || "历史未绑定" }}</b>
+            <div class="muted" v-if="row.order_date">下单 {{ row.order_date }}</div>
+            <div class="muted" v-if="row.customer_order_no">客户单号 {{ row.customer_order_no }}</div>
+          </template>
+        </el-table-column>
         <el-table-column prop="company" label="公司" width="105" />
         <el-table-column prop="product" label="产品" min-width="100" />
-        <el-table-column prop="style" label="款式" min-width="110" />
-        <el-table-column label="尺码数量" min-width="100">
+        <el-table-column label="款式/颜色" min-width="130">
+          <template #default="{ row }">{{ row.style }}<div class="muted" v-if="row.color_name">{{ row.color_name }} · {{ row.spu_code }}</div></template>
+        </el-table-column>
+        <el-table-column label="尺码数量/客户SKU" min-width="170">
           <template #default="{ row }">
-            <div v-for="l in row.lines" :key="l.size">{{ l.size }} {{ l.quantity }}</div>
+            <div v-for="l in row.lines" :key="l.size">{{ l.size }} {{ l.quantity }}<span class="muted" v-if="l.customer_sku"> · {{ l.customer_sku }}</span></div>
           </template>
         </el-table-column>
         <el-table-column label="运单号" width="150">

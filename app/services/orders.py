@@ -281,6 +281,7 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
             OrderLine.delivery_date.label("delivery_date"),
             OrderLine.batch.label("batch"),
             OrderLine.sku.label("sku"),
+            OrderLine.customer_sku.label("customer_sku"),
             OrderLine.note.label("note"),
         )
         .join(Company, Company.id == OrderLine.company_id)
@@ -389,6 +390,7 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
                 "closed": 0,
                 "note": row.note or "",
                 "sku": row.sku or skus.get(base_key, ""),
+                "customer_sku": row.customer_sku or "",
             },
         )
         order_sort.setdefault(key, (row.order_date or row.batch or "", int(row.id or 0)))

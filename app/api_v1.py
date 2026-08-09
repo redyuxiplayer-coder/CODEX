@@ -284,8 +284,15 @@ def _unbound_shipment_rows(session: Session, order: OrderLine) -> list[tuple[Shi
 
 
 def _report_dict(report: ShipmentReport) -> dict:
+    order = report.order
     return {
         "id": report.id,
+        "order_id": report.order_id,
+        "system_order_no": order.system_order_no if order else "",
+        "customer_order_no": order.customer_order_no if order else "",
+        "order_date": order.order_date if order else "",
+        "color_name": order.color_name if order else "",
+        "spu_code": order.spu.code if order and order.spu else "",
         "ship_date": report.ship_date,
         "created_at": report.created_at.isoformat() if report.created_at else "",
         "user": report.user.display_name if report.user else "",
@@ -296,7 +303,14 @@ def _report_dict(report: ShipmentReport) -> dict:
         "note": report.note,
         "status": report.status,
         "review_reason": report.review_reason,
-        "lines": [{"size": line.size, "quantity": line.quantity} for line in report.lines],
+        "lines": [
+            {
+                "size": line.size,
+                "quantity": line.quantity,
+                "customer_sku": line.order_line.customer_sku if line.order_line else "",
+            }
+            for line in report.lines
+        ],
         "photos": [{"id": photo.id} for photo in report.photos],
     }
 
