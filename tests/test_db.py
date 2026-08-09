@@ -1,5 +1,6 @@
-from app.db import engine_kwargs_for_url, needs_local_storage
+from app.db import engine_kwargs_for_url, ensure_schema_updates, needs_local_storage
 from sqlalchemy import create_engine, inspect
+from pathlib import Path
 
 from app.db import Base
 from app import models  # noqa: F401
@@ -54,6 +55,50 @@ def test_formal_order_tables_and_columns_are_registered():
     assert "order_id" in draft_columns
     report_columns = {c["name"] for c in inspector.get_columns("shipment_reports")}
     assert "order_id" in report_columns
+
+
+def test_schema_updates_add_formal_order_columns_to_legacy_sqlite():
+    legacy_engine = create_engine("sqlite:///:memory:")
+    with legacy_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE companies (id INTEGER PRIMARY KEY, name VARCHAR(120), note TEXT, is_active BOOLEAN)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE order_lines (id INTEGER PRIMARY KEY, company_id INTEGER, product_name VARCHAR(160), "
+            "style_name VARCHAR(160), size VARCHAR(80), quantity INTEGER)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE packing_drafts (id INTEGER PRIMARY KEY, user_id INTEGER, pack_date VARCHAR(30))"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE shipment_reports (id INTEGER PRIMARY KEY, user_id INTEGER, ship_date VARCHAR(30))"
+        )
+    Base.metadata.create_all(bind=legacy_engine)
+
+    ensure_schema_updates(legacy_engine)
+
+    inspector = inspect(legacy_engine)
+    assert {"spus", "sales_orders"}.issubset(inspector.get_table_names())
+    assert {"code", "next_order_sequence"}.issubset(
+        {c["name"] for c in inspector.get_columns("companies")}
+    )
+    assert {"order_id", "customer_sku"}.issubset(
+        {c["name"] for c in inspector.get_columns("order_lines")}
+    )
+    assert "order_id" in {c["name"] for c in inspector.get_columns("packing_drafts")}
+    assert "order_id" in {c["name"] for c in inspector.get_columns("shipment_reports")}
+
+
+def test_postgres_formal_order_migration_contains_required_schema_and_grants():
+    migration = Path("scripts/migration_2026_08_09_formal_orders.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS spus" in migration
+    assert "CREATE TABLE IF NOT EXISTS sales_orders" in migration
+    assert "uq_sales_orders_company_sequence" in migration
+    assert "ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS customer_sku" in migration
+    assert "ALTER TABLE shipment_reports ADD COLUMN IF NOT EXISTS order_id" in migration
+    assert "GRANT ALL PRIVILEGES ON TABLE spus, sales_orders TO zy_shipping" in migration
+    assert "ALTER TABLE sales_orders DISABLE ROW LEVEL SECURITY" in migration
 
 
 def test_waybill_table_and_link_column_registered():
