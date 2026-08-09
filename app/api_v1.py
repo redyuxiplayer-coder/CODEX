@@ -1,16 +1,20 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import authenticate, require_admin, require_user
 from app.config import SESSION_COOKIE
 from app.db import get_session
 from app.models import (
+    Company,
     OrderLedgerEntry,
     OrderLine,
     OrderLineComment,
+    SalesOrder,
     ShipmentLine,
     ShipmentReport,
+    Spu,
     User,
     WaybillRecord,
 )
@@ -44,6 +48,8 @@ from app.services.orders import (
     get_order_balances,
     get_order_choices,
 )
+from app.services.sales_orders import create_sales_order
+from app.services.spus import create_spu, normalize_code
 from app.services.photos import save_uploads
 from app.services.returns import (
     create_return_rework,
@@ -66,12 +72,45 @@ from app.services.work_info import (
     reject_work_info_proposal,
     save_work_info,
 )
-from app.models import Company, OperationLog, WaybillPhoto
+from app.models import OperationLog, WaybillPhoto
 from sqlalchemy import func
 
 router = APIRouter(prefix="/api/v1")
 
 APPROVED_STATUSES = {"auto_approved", "approved_after_edit"}
+
+
+class CompanyCodePayload(BaseModel):
+    code: str
+
+
+class SpuPayload(BaseModel):
+    code: str = ""
+    product_name: str
+    style_name: str
+    note: str = ""
+
+
+class SpuUpdatePayload(SpuPayload):
+    is_active: bool = True
+
+
+class SalesOrderLinePayload(BaseModel):
+    size: str
+    quantity: int
+    customer_sku: str = ""
+
+
+class SalesOrderPayload(BaseModel):
+    company_id: int
+    spu_id: int
+    color_name: str = ""
+    color_code: str = ""
+    order_date: str
+    customer_order_no: str = ""
+    delivery_date: str = ""
+    note: str = ""
+    lines: list[SalesOrderLinePayload] = Field(min_length=1)
 
 
 def _user_dict(user: User) -> dict:
@@ -80,6 +119,45 @@ def _user_dict(user: User) -> dict:
         "username": user.username,
         "display_name": user.display_name,
         "role": user.role,
+    }
+
+
+def _spu_dict(spu: Spu) -> dict:
+    return {
+        "id": spu.id,
+        "code": spu.code,
+        "product_name": spu.product_name,
+        "style_name": spu.style_name,
+        "note": spu.note or "",
+        "is_active": bool(spu.is_active),
+    }
+
+
+def _sales_order_dict(order: SalesOrder) -> dict:
+    return {
+        "id": order.id,
+        "system_order_no": order.system_order_no,
+        "customer_order_no": order.customer_order_no or "",
+        "company": {"id": order.company.id, "name": order.company.name, "code": order.company.code or ""},
+        "company_sequence": order.company_sequence,
+        "spu": _spu_dict(order.spu),
+        "product_name": order.product_name,
+        "style_name": order.style_name,
+        "color_name": order.color_name or "",
+        "color_code": order.color_code or "",
+        "order_date": order.order_date,
+        "delivery_date": order.delivery_date or "",
+        "note": order.note or "",
+        "status": order.status,
+        "lines": [
+            {
+                "id": line.id,
+                "size": line.size,
+                "quantity": line.quantity,
+                "customer_sku": line.customer_sku or "",
+            }
+            for line in order.lines
+        ],
     }
 
 
@@ -350,6 +428,172 @@ def api_logout():
 def api_me(request: Request, session: Session = Depends(get_session)):
     user = require_user(request, session)
     return _user_dict(user)
+
+
+@router.get("/companies")
+def api_companies(request: Request, session: Session = Depends(get_session)):
+    require_admin(request, session)
+    companies = session.query(Company).order_by(Company.name).all()
+    return {
+        "companies": [
+            {
+                "id": company.id,
+                "name": company.name,
+                "code": company.code or "",
+                "next_order_sequence": int(company.next_order_sequence or 1),
+                "is_active": bool(company.is_active),
+            }
+            for company in companies
+        ]
+    }
+
+
+@router.post("/companies/{company_id}/code")
+def api_company_code(
+    request: Request,
+    company_id: int,
+    payload: CompanyCodePayload,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    company = session.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="公司不存在")
+    try:
+        code = normalize_code(payload.code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    duplicate = session.query(Company.id).filter(Company.code == code, Company.id != company.id).first()
+    if duplicate:
+        raise HTTPException(status_code=400, detail="公司代码已存在")
+    company.code = code
+    session.commit()
+    return {"id": company.id, "name": company.name, "code": company.code}
+
+
+@router.get("/spus")
+def api_spus(request: Request, q: str = "", session: Session = Depends(get_session)):
+    require_admin(request, session)
+    query = session.query(Spu).order_by(Spu.code)
+    text_query = q.strip()
+    if text_query:
+        like = f"%{text_query}%"
+        query = query.filter(
+            (Spu.code.ilike(like)) | (Spu.product_name.ilike(like)) | (Spu.style_name.ilike(like))
+        )
+    return {"spus": [_spu_dict(spu) for spu in query.all()]}
+
+
+@router.post("/spus")
+def api_create_spu(
+    request: Request,
+    payload: SpuPayload,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    try:
+        return _spu_dict(
+            create_spu(
+                session,
+                payload.code,
+                payload.product_name,
+                payload.style_name,
+                payload.note,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/spus/{spu_id}/update")
+def api_update_spu(
+    request: Request,
+    spu_id: int,
+    payload: SpuUpdatePayload,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    spu = session.get(Spu, spu_id)
+    if spu is None:
+        raise HTTPException(status_code=404, detail="SPU 不存在")
+    try:
+        code = normalize_code(payload.code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    duplicate = session.query(Spu.id).filter(Spu.code == code, Spu.id != spu.id).first()
+    if duplicate:
+        raise HTTPException(status_code=400, detail="SPU 编码已存在")
+    product_name = payload.product_name.strip()
+    style_name = payload.style_name.strip()
+    if not product_name or not style_name:
+        raise HTTPException(status_code=400, detail="产品和款式不能为空")
+    spu.code = code
+    spu.product_name = product_name
+    spu.style_name = style_name
+    spu.note = payload.note.strip()
+    spu.is_active = payload.is_active
+    session.commit()
+    return _spu_dict(spu)
+
+
+@router.get("/sales-orders")
+def api_sales_orders(
+    request: Request,
+    company_id: int | None = None,
+    q: str = "",
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    query = session.query(SalesOrder).order_by(SalesOrder.created_at.desc(), SalesOrder.id.desc())
+    if company_id is not None:
+        query = query.filter(SalesOrder.company_id == company_id)
+    text_query = q.strip()
+    if text_query:
+        like = f"%{text_query}%"
+        query = query.filter(
+            (SalesOrder.system_order_no.ilike(like))
+            | (SalesOrder.customer_order_no.ilike(like))
+            | (SalesOrder.style_name.ilike(like))
+        )
+    return {"orders": [_sales_order_dict(order) for order in query.limit(200).all()]}
+
+
+@router.get("/sales-orders/{order_id}")
+def api_sales_order_detail(
+    request: Request,
+    order_id: int,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    order = session.get(SalesOrder, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    return _sales_order_dict(order)
+
+
+@router.post("/sales-orders")
+def api_create_sales_order(
+    request: Request,
+    payload: SalesOrderPayload,
+    session: Session = Depends(get_session),
+):
+    require_admin(request, session)
+    try:
+        order = create_sales_order(
+            session,
+            company_id=payload.company_id,
+            spu_id=payload.spu_id,
+            color_name=payload.color_name,
+            color_code=payload.color_code,
+            order_date=payload.order_date,
+            lines=[line.model_dump() for line in payload.lines],
+            customer_order_no=payload.customer_order_no,
+            delivery_date=payload.delivery_date,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _sales_order_dict(order)
 
 
 @router.get("/orders/balances")
