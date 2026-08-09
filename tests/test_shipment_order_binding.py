@@ -1,0 +1,155 @@
+import pytest
+from fastapi.testclient import TestClient
+
+from app.db import get_session
+from app.main import create_app
+from app.models import Company, PackingDraft, Spu, User
+from app.main import formal_order_lines_payload, formal_order_options_payload
+from app.services.sales_orders import create_sales_order
+from app.services.packing_drafts import create_packing_draft, submit_packing_draft
+from app.services.shipments import submit_shipment_report
+
+
+def _formal_orders(db_session):
+    company = Company(name="源兴发", code="YXF", next_order_sequence=1)
+    spu = Spu(code="JS", product_name="啦啦队", style_name="僵尸啦啦队")
+    worker = User(username="worker", display_name="员工", password_hash="test", role="worker")
+    db_session.add_all([company, spu, worker])
+    db_session.commit()
+    first = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "红色",
+        "RED",
+        "2026-08-09",
+        [{"size": "S", "quantity": 100}, {"size": "M", "quantity": 80}],
+    )
+    second = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "蓝色",
+        "BLUE",
+        "2026-08-09",
+        [{"size": "S", "quantity": 60}],
+    )
+    return worker, first, second
+
+
+def test_shipment_report_is_bound_to_selected_formal_order(db_session):
+    worker, order, _ = _formal_orders(db_session)
+
+    report = submit_shipment_report(
+        db_session,
+        user_id=worker.id,
+        ship_date="2026-08-09",
+        company_name="错误公司名",
+        product_name="错误产品名",
+        style_name="错误款式名",
+        lines=[{"size": "S", "quantity": 20, "order_line_id": order.lines[0].id}],
+        order_id=order.id,
+    )
+
+    assert report.order_id == order.id
+    assert report.company_name == "源兴发"
+    assert report.product_name == order.product_name
+    assert report.style_name == order.style_name
+
+
+def test_shipment_report_rejects_line_from_another_order(db_session):
+    worker, selected_order, other_order = _formal_orders(db_session)
+
+    with pytest.raises(ValueError, match="发货尺码不属于所选订单"):
+        submit_shipment_report(
+            db_session,
+            user_id=worker.id,
+            ship_date="2026-08-09",
+            company_name="源兴发",
+            product_name=selected_order.product_name,
+            style_name=selected_order.style_name,
+            lines=[{"size": "S", "quantity": 10, "order_line_id": other_order.lines[0].id}],
+            order_id=selected_order.id,
+        )
+
+
+def test_packing_draft_keeps_selected_order_through_submission(db_session):
+    worker, order, _ = _formal_orders(db_session)
+    draft = create_packing_draft(
+        db_session,
+        user_id=worker.id,
+        pack_date="2026-08-09",
+        company_name="",
+        product_name="",
+        style_name="",
+        lines=[{"size": "M", "quantity": 15, "order_line_id": order.lines[1].id}],
+        order_id=order.id,
+    )
+
+    report = submit_packing_draft(db_session, draft.id, worker.id)
+
+    assert draft.order_id == order.id
+    assert report.order_id == order.id
+    assert report.lines[0].order_line_id == order.lines[1].id
+
+
+def test_packing_draft_rejects_line_from_another_order(db_session):
+    worker, selected_order, other_order = _formal_orders(db_session)
+
+    with pytest.raises(ValueError, match="包货尺码不属于所选订单"):
+        create_packing_draft(
+            db_session,
+            user_id=worker.id,
+            pack_date="2026-08-09",
+            company_name="",
+            product_name="",
+            style_name="",
+            lines=[{"size": "S", "quantity": 10, "order_line_id": other_order.lines[0].id}],
+            order_id=selected_order.id,
+        )
+
+
+def test_mobile_form_lists_order_number_date_color_and_only_its_sizes(db_session):
+    _worker, first, second = _formal_orders(db_session)
+
+    options = formal_order_options_payload(db_session)
+    payload = formal_order_lines_payload(db_session, first.id)
+
+    assert [row["id"] for row in options] == [second.id, first.id]
+    first_option = next(row for row in options if row["id"] == first.id)
+    assert first_option["system_order_no"] == "YXF-00001-JS-RED"
+    assert first_option["order_date"] == "2026-08-09"
+    assert first_option["color_name"] == "红色"
+    assert [row["order_line_id"] for row in payload["lines"]] == [line.id for line in first.lines]
+    assert {row["size"] for row in payload["lines"]} == {"S", "M"}
+
+
+def test_worker_mobile_form_submits_one_selected_order(db_session):
+    worker, order, _ = _formal_orders(db_session)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/report")
+    options = client.get(f"/mobile/report/options?order_id={order.id}")
+    response = client.post(
+        "/mobile/today/new",
+        data={
+            "pack_date": "2026-08-09",
+            "order_id": str(order.id),
+            "order_line_ids": [str(order.lines[0].id)],
+            "sizes": ["S"],
+            "quantities": ["20"],
+        },
+        follow_redirects=False,
+    )
+
+    assert page.status_code == 200
+    assert order.system_order_no in page.text
+    assert options.status_code == 200
+    assert [row["order_line_id"] for row in options.json()["lines"]] == [line.id for line in order.lines]
+    assert response.status_code == 303
+    draft = db_session.query(PackingDraft).one()
+    assert draft.order_id == order.id
+    app.dependency_overrides.clear()

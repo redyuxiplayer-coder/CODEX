@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,6 +26,7 @@ from app.models import (
     PackingDraftPhoto,
     ReturnRework,
     ReturnReworkPhoto,
+    SalesOrder,
     ShipmentLine,
     ShipmentPhoto,
     ShipmentReport,
@@ -250,6 +251,56 @@ def active_order_companies(session: Session) -> list[str]:
         .all()
         if name
     ]
+
+
+def formal_order_options_payload(session: Session) -> list[dict]:
+    orders = (
+        session.query(SalesOrder)
+        .join(Company, Company.id == SalesOrder.company_id)
+        .filter(SalesOrder.status == "active", Company.is_active.is_(True))
+        .order_by(SalesOrder.order_date.desc(), SalesOrder.id.desc())
+        .all()
+    )
+    return [
+        {
+            "id": order.id,
+            "system_order_no": order.system_order_no,
+            "customer_order_no": order.customer_order_no or "",
+            "company_name": order.company.name,
+            "product_name": order.product_name,
+            "style_name": order.style_name,
+            "color_name": order.color_name or "无颜色",
+            "order_date": order.order_date,
+        }
+        for order in orders
+    ]
+
+
+def formal_order_lines_payload(session: Session, order_id: int) -> dict:
+    order = session.get(SalesOrder, order_id)
+    if order is None or order.status != "active":
+        raise ValueError("所选订单不存在或已停用")
+    balances = {row["order_id"]: row for row in get_order_balances(session, company_name=order.company.name)}
+    lines = []
+    for line in sorted((line for line in order.lines if line.is_active), key=lambda row: size_sort_key(row.size)):
+        balance = balances.get(line.id, {})
+        ordered = int(balance.get("ordered", line.quantity))
+        shipped = int(balance.get("shipped", 0))
+        lines.append(
+            {
+                "order_line_id": line.id,
+                "size": line.size,
+                "customer_sku": line.customer_sku or "",
+                "ordered": ordered,
+                "shipped": shipped,
+                "remaining": int(balance.get("remaining", ordered - shipped)),
+                "over_shipped": int(balance.get("over_shipped", max(0, shipped - ordered))),
+            }
+        )
+    return {
+        "order": next(row for row in formal_order_options_payload(session) if row["id"] == order.id),
+        "lines": lines,
+    }
 
 
 def mobile_report_options_payload(session: Session, company: str = "", product: str = "", style: str = "") -> dict:
@@ -1477,6 +1528,7 @@ def create_app() -> FastAPI:
                 "today": today,
                 "drafts": drafts,
                 "companies": active_order_companies(session),
+                "formal_orders": formal_order_options_payload(session),
             },
         )
 
@@ -1486,11 +1538,17 @@ def create_app() -> FastAPI:
         company: str = "",
         product: str = "",
         style: str = "",
+        order_id: int | None = None,
         session: Session = Depends(get_session),
     ):
         user = current_user(request, session)
         if not user:
             return JSONResponse({"detail": "请先登录"}, status_code=401)
+        if order_id:
+            try:
+                return formal_order_lines_payload(session, order_id)
+            except ValueError as exc:
+                return JSONResponse({"detail": str(exc)}, status_code=404)
         return mobile_report_options_payload(session, company.strip(), product.strip(), style.strip())
 
     @app.get("/mobile/report/scan")
@@ -1515,9 +1573,10 @@ def create_app() -> FastAPI:
     async def mobile_today_new(
         request: Request,
         pack_date: str = Form(...),
-        company_name: str = Form(...),
-        product_name: str = Form(...),
-        style_name: str = Form(...),
+        order_id: int | None = Form(None),
+        company_name: str = Form(""),
+        product_name: str = Form(""),
+        style_name: str = Form(""),
         sizes: list[str] = Form([]),
         order_line_ids: list[str] = Form([]),
         quantities: list[str] = Form([]),
@@ -1526,12 +1585,26 @@ def create_app() -> FastAPI:
         session: Session = Depends(get_session),
     ):
         user = require_user(request, session)
+        if order_id is None and session.query(SalesOrder.id).filter(SalesOrder.status == "active").first():
+            raise HTTPException(status_code=400, detail="请选择订单号")
         lines = [
             {"size": size, "quantity": qty, "order_line_id": order_line_ids[index] if index < len(order_line_ids) else ""}
             for index, (size, qty) in enumerate(zip(sizes, quantities))
             if size and qty
         ]
-        create_packing_draft(session, user.id, pack_date, company_name, product_name, style_name, lines, note, [], waybill_no)
+        create_packing_draft(
+            session,
+            user.id,
+            pack_date,
+            company_name,
+            product_name,
+            style_name,
+            lines,
+            note,
+            [],
+            waybill_no,
+            order_id=order_id,
+        )
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.post("/mobile/today/{report_id}/update")
@@ -1744,9 +1817,10 @@ def create_app() -> FastAPI:
     async def mobile_submit_report(
         request: Request,
         ship_date: str = Form(...),
-        company_name: str = Form(...),
-        product_name: str = Form(...),
-        style_name: str = Form(...),
+        order_id: int | None = Form(None),
+        company_name: str = Form(""),
+        product_name: str = Form(""),
+        style_name: str = Form(""),
         sizes: list[str] = Form([]),
         order_line_ids: list[str] = Form([]),
         quantities: list[str] = Form([]),
@@ -1754,12 +1828,25 @@ def create_app() -> FastAPI:
         session: Session = Depends(get_session),
     ):
         user = require_user(request, session)
+        if order_id is None and session.query(SalesOrder.id).filter(SalesOrder.status == "active").first():
+            raise HTTPException(status_code=400, detail="请选择订单号")
         lines = [
             {"size": size, "quantity": qty, "order_line_id": order_line_ids[index] if index < len(order_line_ids) else ""}
             for index, (size, qty) in enumerate(zip(sizes, quantities))
             if size and qty
         ]
-        report = submit_shipment_report(session, user.id, ship_date, company_name, product_name, style_name, lines, [], note)
+        report = submit_shipment_report(
+            session,
+            user.id,
+            ship_date,
+            company_name,
+            product_name,
+            style_name,
+            lines,
+            [],
+            note,
+            order_id=order_id,
+        )
         message = "已自动通过" if report.status == "auto_approved" else f"已提交待审核：{report.review_reason}"
         from app.models import PackingDraft
 
@@ -1776,6 +1863,7 @@ def create_app() -> FastAPI:
                 "request": request,
                 "user": user,
                 "companies": active_order_companies(session),
+                "formal_orders": formal_order_options_payload(session),
                 "drafts": drafts,
                 "today": today,
                 "message": message,

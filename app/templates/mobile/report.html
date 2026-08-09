@@ -27,18 +27,17 @@
     <h2>新增包货草稿</h2>
     <form method="post" action="/mobile/today/new" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="new">
       <input type="hidden" name="pack_date" value="{{ today }}">
-      <label>公司</label>
-      <select name="company_name" id="company" required></select>
-      <label>产品</label>
-      <select name="product_name" id="product" required></select>
-      <label>款式</label>
-      <select name="style_name" id="style" required></select>
-      <label>扫码（可选）</label>
-      <div class="qty-wrap">
-        <input type="text" id="scan-code" placeholder="扫描或输入条码后点“带出”" autocomplete="off">
-        <button type="button" class="plus-btn" id="scan-btn" aria-label="扫码带出">带出</button>
-      </div>
-      <p class="hint">选好款式后填写尺码数量；多个数量用 <b>+</b> 连接，例如 60+60+45。</p>
+      <label>订单号</label>
+      <select name="order_id" id="formal-order" required>
+        <option value="">请选择本次发货对应的订单</option>
+        {% for order in formal_orders %}
+        <option value="{{ order.id }}">
+          {{ order.system_order_no }} · {{ order.company_name }} · {{ order.style_name }} · {{ order.color_name }} · {{ order.order_date }}
+        </option>
+        {% endfor %}
+      </select>
+      <div id="formal-order-detail" class="hint"></div>
+      <p class="hint">一张包货草稿只能对应一个订单；选好订单后填写各尺码数量。多个数量可用 <b>+</b> 连接，例如 60+60+45。</p>
       <div id="size-box"></div>
       <label>运单号（可选）</label>
       <input name="waybill_no" placeholder="例如 YT1234567890">
@@ -54,8 +53,8 @@
       <div class="mobile-list">
       {% for d in drafts %}
         <article class="balance-item need-card">
-          <div class="item-title">{{ d.company_name }} · {{ d.product_name }}</div>
-          <div class="item-sub">{{ d.style_name }} / 未上报{% if d.package_no %} / {{ d.package_no }}{% endif %}</div>
+          <div class="item-title">{% if d.order %}{{ d.order.system_order_no }} · {% endif %}{{ d.company_name }} · {{ d.product_name }}</div>
+          <div class="item-sub">{{ d.style_name }}{% if d.order and d.order.color_name %} · {{ d.order.color_name }}{% endif %} / 未上报{% if d.package_no %} / {{ d.package_no }}{% endif %}</div>
           <form method="post" action="/mobile/today/{{ d.id }}/update" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="draft-{{ d.id }}">
             {% for l in d.lines %}
             <div class="size-row">
