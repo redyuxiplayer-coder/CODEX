@@ -10,6 +10,7 @@ from app.models import (
     OrderLine,
     OrderLineClose,
     ReturnRework,
+    SalesOrder,
     ShipmentLine,
     ShipmentReport,
     User,
@@ -283,8 +284,11 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
             OrderLine.sku.label("sku"),
             OrderLine.customer_sku.label("customer_sku"),
             OrderLine.note.label("note"),
+            SalesOrder.system_order_no.label("system_order_no"),
+            SalesOrder.order_date.label("formal_order_date"),
         )
         .join(Company, Company.id == OrderLine.company_id)
+        .outerjoin(SalesOrder, SalesOrder.id == OrderLine.order_id)
         .filter(OrderLine.is_active.is_(True), Company.is_active.is_(True))
     )
     if company_name:
@@ -379,6 +383,8 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
                 "style": canonical_style,
                 "order_ref": order_ref,
                 "order_date": row.order_date or "",
+                "system_order_no": row.system_order_no or "",
+                "formal_order_date": row.formal_order_date or "",
                 "delivery_date": row.delivery_date or "",
                 "size": row.size,
                 "ordered": 0,

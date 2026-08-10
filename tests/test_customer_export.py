@@ -2,19 +2,31 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from app.models import ShipmentLine, ShipmentReport, User, WaybillRecord
+from app.models import Company, ShipmentLine, ShipmentReport, Spu, User, WaybillRecord
 from app.services.exports import export_customer_company_workbook
 from app.services.logistics import create_waybill_record, link_reports_to_waybill
-from app.services.orders import create_order_line
+from app.services.sales_orders import create_sales_order
 
 
 def _setup(db_session):
     admin = User(username="export_admin", display_name="老板", password_hash="x", role="admin", is_active=True)
-    db_session.add(admin)
+    company = Company(name="广东茉莉", code="ML", next_order_sequence=1)
+    spu = Spu(code="CPYL", product_name="裁判", style_name="圆领裁判")
+    db_session.add_all([admin, company, spu])
     db_session.commit()
-    order = create_order_line(db_session, "广东茉莉", "裁判", "圆领裁判", "M", 100)
+    formal_order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "",
+        "",
+        "2026-05-22",
+        [{"size": "M", "quantity": 100, "customer_sku": ""}],
+    )
+    order_line = formal_order.lines[0]
     report = ShipmentReport(
         user_id=admin.id,
+        order_id=formal_order.id,
         ship_date="2026-07-17",
         company_name="广东茉莉",
         product_name="裁判",
@@ -23,11 +35,22 @@ def _setup(db_session):
     )
     db_session.add(report)
     db_session.flush()
-    db_session.add(ShipmentLine(report_id=report.id, order_line_id=order.id, size="M", quantity=50))
+    db_session.add(ShipmentLine(report_id=report.id, order_line_id=order_line.id, size="M", quantity=50))
     db_session.commit()
     waybill = create_waybill_record(db_session, admin.id, "广东茉莉", "2026-07-17", "800209579798", weight_kg=262.3, package_count=9)
     link_reports_to_waybill(db_session, waybill.id, [report.id])
-    return order
+    return formal_order, order_line
+
+
+def test_balance_projection_exposes_formal_order_number_and_date(db_session):
+    from app.services.orders import get_order_balances
+
+    formal_order, _order_line = _setup(db_session)
+
+    row = get_order_balances(db_session, company_name="广东茉莉")[0]
+
+    assert row["system_order_no"] == formal_order.system_order_no
+    assert row["formal_order_date"] == "2026-05-22"
 
 
 def test_customer_export_uses_waybill_number_and_detail_sheet(db_session, tmp_path: Path):
