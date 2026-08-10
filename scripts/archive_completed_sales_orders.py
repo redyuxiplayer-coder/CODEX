@@ -58,6 +58,9 @@ def build_archive_preview(
                     "size": row["size"],
                     "ordered": int(row["ordered"]),
                     "shipped": int(row["shipped"]),
+                    "returned": int(row.get("returned") or 0),
+                    "adjusted": int(row.get("adjusted") or 0),
+                    "closed": int(row.get("closed") or 0),
                     "remaining": int(row["remaining"]),
                     "over_shipped": int(row["over_shipped"]),
                 }
@@ -129,6 +132,7 @@ def main() -> int:
             for row in order["sizes"]:
                 print(
                     f'  {row["size"]}: 下单 {row["ordered"]}，已发 {row["shipped"]}，'
+                    f'退回 {row["returned"]}，核销 {row["adjusted"]}，关闭 {row["closed"]}，'
                     f'剩余 {row["remaining"]}，超发 {row["over_shipped"]}'
                 )
         if not args.apply:

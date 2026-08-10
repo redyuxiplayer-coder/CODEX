@@ -91,14 +91,36 @@ def test_archive_script_apply_uses_archive_service(db_session):
             "system_order_no": completed.system_order_no,
             "order_date": "2026-08-01",
             "candidate": True,
-            "sizes": [{"size": "S", "ordered": 10, "shipped": 10, "remaining": 0, "over_shipped": 0}],
+            "sizes": [
+                {
+                    "size": "S",
+                    "ordered": 10,
+                    "shipped": 10,
+                    "returned": 0,
+                    "adjusted": 0,
+                    "closed": 0,
+                    "remaining": 0,
+                    "over_shipped": 0,
+                }
+            ],
         },
         {
             "order_id": unfinished.id,
             "system_order_no": unfinished.system_order_no,
             "order_date": "2026-08-02",
             "candidate": False,
-            "sizes": [{"size": "M", "ordered": 20, "shipped": 0, "remaining": 20, "over_shipped": 0}],
+            "sizes": [
+                {
+                    "size": "M",
+                    "ordered": 20,
+                    "shipped": 0,
+                    "returned": 0,
+                    "adjusted": 0,
+                    "closed": 0,
+                    "remaining": 20,
+                    "over_shipped": 0,
+                }
+            ],
         },
     ]
     assert [record.order_id for record in applied] == [completed.id]
