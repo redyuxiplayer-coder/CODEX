@@ -2,7 +2,7 @@ import json
 
 from sqlalchemy.orm import Session
 
-from app.models import OperationLog, SalesOrder, SalesOrderArchive, now
+from app.models import OperationLog, OrderLine, SalesOrder, SalesOrderArchive, now
 from app.services.orders import get_order_balances
 
 
@@ -25,6 +25,27 @@ def archived_order_ids(session: Session) -> set[int]:
         .filter(SalesOrderArchive.restored_at.is_(None))
         .all()
     }
+
+
+def archived_order_line_ids(session: Session) -> set[int]:
+    order_ids = archived_order_ids(session)
+    if not order_ids:
+        return set()
+    return {
+        int(line_id)
+        for (line_id,) in session.query(OrderLine.id)
+        .filter(OrderLine.order_id.in_(order_ids))
+        .all()
+    }
+
+
+def worker_visible_balances(session: Session, company_name: str | None = None) -> list[dict]:
+    hidden_line_ids = archived_order_line_ids(session)
+    return [
+        row
+        for row in get_order_balances(session, company_name=company_name)
+        if not hidden_line_ids.intersection(int(line_id) for line_id in row.get("order_ids", []))
+    ]
 
 
 def _history_item(record: SalesOrderArchive) -> dict:

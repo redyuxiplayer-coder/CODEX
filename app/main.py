@@ -60,6 +60,7 @@ from app.services.orders import (
     update_order_line,
 )
 from app.services.operation_logs import log_operation, recent_operation_logs
+from app.services.order_archives import archived_order_ids, get_open_archive, worker_visible_balances
 from app.services.packing_drafts import create_packing_draft, delete_packing_draft, submit_packing_draft, update_packing_draft
 from app.services.photos import ensure_thumbnail, save_uploads
 from app.services.photos import download_file_from_supabase_storage
@@ -237,23 +238,15 @@ def balances_for_report_hint_from_balances(balances: list[dict]) -> dict:
 
 
 def balances_for_report_hint(session: Session) -> dict:
-    return balances_for_report_hint_from_balances(get_order_balances(session))
+    return balances_for_report_hint_from_balances(worker_visible_balances(session))
 
 
 def active_order_companies(session: Session) -> list[str]:
-    return [
-        name
-        for (name,) in session.query(Company.name)
-        .join(OrderLine, OrderLine.company_id == Company.id)
-        .filter(Company.is_active.is_(True), OrderLine.is_active.is_(True))
-        .distinct()
-        .order_by(Company.name)
-        .all()
-        if name
-    ]
+    return sorted({row["company"] for row in worker_visible_balances(session) if row["company"]})
 
 
 def formal_order_options_payload(session: Session) -> list[dict]:
+    hidden_order_ids = archived_order_ids(session)
     orders = (
         session.query(SalesOrder)
         .join(Company, Company.id == SalesOrder.company_id)
@@ -273,6 +266,7 @@ def formal_order_options_payload(session: Session) -> list[dict]:
             "order_date": order.order_date,
         }
         for order in orders
+        if order.id not in hidden_order_ids
     ]
 
 
@@ -280,7 +274,9 @@ def formal_order_lines_payload(session: Session, order_id: int) -> dict:
     order = session.get(SalesOrder, order_id)
     if order is None or order.status != "active":
         raise ValueError("所选订单不存在或已停用")
-    balances = {row["order_id"]: row for row in get_order_balances(session, company_name=order.company.name)}
+    if get_open_archive(session, order.id):
+        raise ValueError("订单已归档，请先恢复")
+    balances = {row["order_id"]: row for row in worker_visible_balances(session, company_name=order.company.name)}
     lines = []
     for line in sorted((line for line in order.lines if line.is_active), key=lambda row: size_sort_key(row.size)):
         balance = balances.get(line.id, {})
@@ -307,40 +303,17 @@ def mobile_report_options_payload(session: Session, company: str = "", product: 
     if not company:
         return {"companies": active_order_companies(session)}
     if not product:
-        return {
-            "products": [
-                name
-                for (name,) in session.query(OrderLine.product_name)
-                .join(Company, Company.id == OrderLine.company_id)
-                .filter(Company.name == company, Company.is_active.is_(True), OrderLine.is_active.is_(True))
-                .distinct()
-                .order_by(OrderLine.product_name)
-                .all()
-                if name
-            ]
-        }
+        return {"products": sorted({row["product"] for row in worker_visible_balances(session, company) if row["product"]})}
     if not style:
         return {
-            "styles": [
-                name
-                for (name,) in session.query(OrderLine.style_name)
-                .join(Company, Company.id == OrderLine.company_id)
-                .filter(
-                    Company.name == company,
-                    OrderLine.product_name == product,
-                    Company.is_active.is_(True),
-                    OrderLine.is_active.is_(True),
-                )
-                .distinct()
-                .order_by(OrderLine.style_name)
-                .all()
-                if name
-            ]
+            "styles": sorted(
+                {row["style"] for row in worker_visible_balances(session, company) if row["product"] == product and row["style"]}
+            )
         }
     canonical_product, canonical_style = canonical_item(session, company, product, style)
     balances = [
         row
-        for row in get_order_balances(session, company_name=company)
+        for row in worker_visible_balances(session, company_name=company)
         if row["product"] == canonical_product and row["style"] == canonical_style
     ]
     hints = balances_for_report_hint_from_balances(balances).get(company, {}).get(canonical_product, {}).get(canonical_style, {})
@@ -1671,7 +1644,7 @@ def create_app() -> FastAPI:
         user = current_user(request, session)
         if not user:
             return RedirectResponse("/login", status_code=303)
-        all_balances = get_order_balances(session)
+        all_balances = worker_visible_balances(session)
         companies = sorted({row["company"] for row in all_balances})
         item_text = item.strip()
         style_text = style.strip()

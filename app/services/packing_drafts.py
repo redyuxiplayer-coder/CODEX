@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.models import OrderLine, PackingDraft, PackingDraftLine, PackingDraftPhoto, SalesOrder
+from app.services.order_archives import get_open_archive
 from app.services.quantities import parse_quantity
 from app.services.shipments import submit_shipment_report
 
@@ -47,6 +48,8 @@ def create_packing_draft(
     if order_id and selected_order is None:
         raise ValueError("所选订单不存在")
     if selected_order is not None:
+        if get_open_archive(session, selected_order.id):
+            raise ValueError("订单已归档，请先恢复")
         if selected_order.status != "active":
             raise ValueError("所选订单已停用")
         _validate_formal_order_lines(session, selected_order, cleaned_lines)
@@ -106,6 +109,8 @@ def update_packing_draft(
         selected_order = session.get(SalesOrder, draft.order_id)
         if selected_order is None:
             raise ValueError("所选订单不存在")
+        if get_open_archive(session, selected_order.id):
+            raise ValueError("订单已归档，请先恢复")
         _validate_formal_order_lines(session, selected_order, cleaned_lines)
     for line in list(draft.lines):
         session.delete(line)

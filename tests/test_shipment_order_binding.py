@@ -3,11 +3,11 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import create_app
-from app.models import Company, PackingDraft, Spu, User
+from app.models import Company, PackingDraft, SalesOrderArchive, Spu, User
 from app.main import formal_order_lines_payload, formal_order_options_payload
 from app.services.sales_orders import create_sales_order
 from app.services.packing_drafts import create_packing_draft, submit_packing_draft
-from app.services.shipments import submit_shipment_report
+from app.services.shipments import resolve_order_line_id, submit_shipment_report
 
 
 def _formal_orders(db_session):
@@ -153,3 +153,73 @@ def test_worker_mobile_form_submits_one_selected_order(db_session):
     draft = db_session.query(PackingDraft).one()
     assert draft.order_id == order.id
     app.dependency_overrides.clear()
+
+
+def test_worker_candidates_hide_archived_order(db_session):
+    worker, archived_order, active_order = _formal_orders(db_session)
+    db_session.add(SalesOrderArchive(order_id=archived_order.id, archived_by=worker.id))
+    db_session.commit()
+
+    options = formal_order_options_payload(db_session)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+    report_page = client.get("/mobile/report")
+    orders_page = client.get("/mobile/orders")
+
+    assert [row["id"] for row in options] == [active_order.id]
+    assert archived_order.system_order_no not in report_page.text
+    assert active_order.system_order_no in report_page.text
+    assert archived_order.system_order_no not in orders_page.text
+    assert active_order.system_order_no in orders_page.text
+    app.dependency_overrides.clear()
+
+
+def test_submit_and_draft_reject_archived_selected_order(db_session):
+    worker, order, _ = _formal_orders(db_session)
+    db_session.add(SalesOrderArchive(order_id=order.id, archived_by=worker.id))
+    db_session.commit()
+    line = order.lines[0]
+
+    with pytest.raises(ValueError, match="订单已归档，请先恢复"):
+        submit_shipment_report(
+            db_session,
+            user_id=worker.id,
+            ship_date="2026-08-10",
+            company_name="",
+            product_name="",
+            style_name="",
+            lines=[{"size": line.size, "quantity": 1, "order_line_id": line.id}],
+            order_id=order.id,
+        )
+    with pytest.raises(ValueError, match="订单已归档，请先恢复"):
+        create_packing_draft(
+            db_session,
+            user_id=worker.id,
+            pack_date="2026-08-10",
+            company_name="",
+            product_name="",
+            style_name="",
+            lines=[{"size": line.size, "quantity": 1, "order_line_id": line.id}],
+            order_id=order.id,
+        )
+
+
+def test_order_line_resolver_skips_archived_preferred_line(db_session):
+    worker, archived_order, active_order = _formal_orders(db_session)
+    archived_line = archived_order.lines[0]
+    active_line = active_order.lines[0]
+    db_session.add(SalesOrderArchive(order_id=archived_order.id, archived_by=worker.id))
+    db_session.commit()
+
+    resolved = resolve_order_line_id(
+        db_session,
+        archived_order.company.name,
+        archived_order.product_name,
+        archived_order.style_name,
+        archived_line.size,
+        preferred=archived_line.id,
+    )
+
+    assert resolved == active_line.id

@@ -7,6 +7,7 @@ from pathlib import Path
 from app.models import AuditLog, OrderLine, SalesOrder, ShipmentLine, ShipmentPhoto, ShipmentReport, User
 from app.services.aliases import canonical_item
 from app.services.ledger import recompute_for_report, recompute_order_ledger
+from app.services.order_archives import get_open_archive, worker_visible_balances
 from app.services.orders import get_order_balances
 from app.services.quantities import parse_quantity
 
@@ -29,9 +30,14 @@ def resolve_order_line_id(
     clean_size = str(size or "").strip()
     if preferred:
         order = session.get(OrderLine, int(preferred))
-        if order is not None and order.is_active and str(order.size or "").strip() == clean_size:
+        if (
+            order is not None
+            and order.is_active
+            and str(order.size or "").strip() == clean_size
+            and (not order.order_id or get_open_archive(session, order.order_id) is None)
+        ):
             return int(preferred)
-    for row in get_order_balances(session, company_name=company_name):
+    for row in worker_visible_balances(session, company_name=company_name):
         if (
             row["product"] == product_name
             and row["style"] == style_name
@@ -158,6 +164,8 @@ def submit_shipment_report(
     if order_id and selected_order is None:
         raise ValueError("所选订单不存在")
     if selected_order is not None:
+        if get_open_archive(session, selected_order.id):
+            raise ValueError("订单已归档，请先恢复")
         if selected_order.status != "active":
             raise ValueError("所选订单已停用")
         for line in cleaned_lines:
@@ -168,6 +176,10 @@ def submit_shipment_report(
         canonical_product = selected_order.product_name
         canonical_style = selected_order.style_name
     else:
+        for line in cleaned_lines:
+            bound_line = session.get(OrderLine, line.get("order_line_id")) if line.get("order_line_id") else None
+            if bound_line and bound_line.order_id and get_open_archive(session, bound_line.order_id):
+                raise ValueError("订单已归档，请先恢复")
         canonical_product, canonical_style = canonical_item(session, company_name, product_name, style_name)
     reasons = _review_reasons(session, user_id, company_name, canonical_product, canonical_style, cleaned_lines)
     user = session.get(User, user_id)
