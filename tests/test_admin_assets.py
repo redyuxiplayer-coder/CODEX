@@ -40,3 +40,16 @@ def test_company_and_spu_management_pages_exist():
     assert "SPU 编码" in spus
     assert "product_name" in spus
     assert "style_name" in spus
+
+
+def test_sales_order_pages_include_archive_controls():
+    list_source = (WEB_SRC / "views" / "SalesOrders.vue").read_text(encoding="utf-8")
+    detail_source = (WEB_SRC / "views" / "SalesOrderDetail.vue").read_text(encoding="utf-8")
+    api_source = (WEB_SRC / "api.js").read_text(encoding="utf-8")
+
+    assert "archiveStatus" in list_source
+    assert "已归档" in list_source
+    assert "archiveSalesOrder" in detail_source
+    assert "restoreSalesOrder" in detail_source
+    assert "archiveSalesOrder" in api_source
+    assert "restoreSalesOrder" in api_source

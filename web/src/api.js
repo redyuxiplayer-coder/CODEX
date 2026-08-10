@@ -91,6 +91,14 @@ export function fetchSalesOrder(orderId) {
   return request(`/api/v1/sales-orders/${orderId}`);
 }
 
+export function archiveSalesOrder(orderId) {
+  return request(`/api/v1/sales-orders/${orderId}/archive`, { method: "POST" });
+}
+
+export function restoreSalesOrder(orderId) {
+  return request(`/api/v1/sales-orders/${orderId}/restore`, { method: "POST" });
+}
+
 export function createSalesOrder(data) {
   return postJson("/api/v1/sales-orders", data);
 }
