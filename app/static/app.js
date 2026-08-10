@@ -77,7 +77,7 @@ function renderOrderLineRows(lines) {
     const alertClass = line.over_shipped > 0 ? " danger-card" : (line.remaining <= 0 ? " done-card" : "");
     const row = document.createElement("div");
     row.className = `size-row balance-size-row${alertClass}`;
-    const orderLabel = `${line.order_ref || "未写下单日期"} / ${line.size}`;
+    const orderLabel = `${line.size}${line.customer_sku ? ` / 客户SKU ${line.customer_sku}` : ""}`;
     row.innerHTML = `
       <label>${escapeHtml(orderLabel)}</label>
       <input type="hidden" name="order_line_ids" value="${escapeHtml(line.order_line_id || "")}">
@@ -93,6 +93,31 @@ function renderOrderLineRows(lines) {
   if (!lines.length) {
     box.innerHTML += "<p class='hint'>还没有可选订单，请先在电脑端导入或新增订单。</p>";
   }
+}
+
+async function updateFormalOrderLines() {
+  const select = document.getElementById("formal-order");
+  const detail = document.getElementById("formal-order-detail");
+  const box = document.getElementById("size-box");
+  if (!select || !select.value) {
+    if (detail) detail.textContent = "";
+    renderOrderLineRows([]);
+    return;
+  }
+  if (box) box.innerHTML = "<label>订单尺码数量</label><p class='hint'>订单加载中...</p>";
+  const result = await fetchReportOptions({ order_id: select.value });
+  const order = result.order || {};
+  if (detail) {
+    detail.textContent = `${order.company_name || ""} · ${order.product_name || ""} · ${order.style_name || ""} · ${order.color_name || "无颜色"} · 下单 ${order.order_date || "未填写"}`;
+  }
+  renderOrderLineRows(result.lines || []);
+}
+
+function setupFormalOrderSelector() {
+  const select = document.getElementById("formal-order");
+  if (!select) return;
+  select.addEventListener("change", () => updateFormalOrderLines());
+  renderOrderLineRows([]);
 }
 
 async function updateProducts(preferredProduct = "") {
@@ -167,6 +192,7 @@ function getReportDraftKey(form) {
 
 function collectReportDraft(form) {
   return {
+    orderId: form.querySelector('[name="order_id"]')?.value || "",
     company: form.querySelector('[name="company_name"]')?.value || "",
     product: form.querySelector('[name="product_name"]')?.value || "",
     style: form.querySelector('[name="style_name"]')?.value || "",
@@ -191,6 +217,12 @@ async function restoreReportDraft(form) {
     draft = null;
   }
   if (!draft) return;
+
+  const formalOrder = form.querySelector('[name="order_id"]');
+  if (formalOrder && draft.orderId) {
+    formalOrder.value = draft.orderId;
+    await updateFormalOrderLines();
+  }
 
   const company = form.querySelector('[name="company_name"]');
   const product = form.querySelector('[name="product_name"]');
@@ -514,6 +546,7 @@ document.addEventListener("DOMContentLoaded", () => {
     fillSelect(document.getElementById("style"), [], "请先选择产品");
     renderSizeRows([], {});
   }
+  setupFormalOrderSelector();
   setupReportDraftForms();
   setupQuantityPlusButtons();
   setupBarcodeScan();

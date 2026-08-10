@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from pathlib import Path
 
-from app.models import AuditLog, OrderLine, ShipmentLine, ShipmentPhoto, ShipmentReport, User
+from app.models import AuditLog, OrderLine, SalesOrder, ShipmentLine, ShipmentPhoto, ShipmentReport, User
 from app.services.aliases import canonical_item
 from app.services.ledger import recompute_for_report, recompute_order_ledger
 from app.services.orders import get_order_balances
@@ -143,6 +143,7 @@ def submit_shipment_report(
     photo_paths: list[str] | None = None,
     note: str = "",
     waybill_no: str = "",
+    order_id: int | None = None,
 ) -> ShipmentReport:
     cleaned_lines = [
         {
@@ -153,7 +154,21 @@ def submit_shipment_report(
         for line in lines
         if str(line.get("size", "")).strip() and parse_quantity(line.get("quantity")) > 0
     ]
-    canonical_product, canonical_style = canonical_item(session, company_name, product_name, style_name)
+    selected_order = session.get(SalesOrder, int(order_id)) if order_id else None
+    if order_id and selected_order is None:
+        raise ValueError("所选订单不存在")
+    if selected_order is not None:
+        if selected_order.status != "active":
+            raise ValueError("所选订单已停用")
+        for line in cleaned_lines:
+            bound_line = session.get(OrderLine, line.get("order_line_id")) if line.get("order_line_id") else None
+            if bound_line is None or bound_line.order_id != selected_order.id or bound_line.size != line["size"]:
+                raise ValueError("发货尺码不属于所选订单")
+        company_name = selected_order.company.name
+        canonical_product = selected_order.product_name
+        canonical_style = selected_order.style_name
+    else:
+        canonical_product, canonical_style = canonical_item(session, company_name, product_name, style_name)
     reasons = _review_reasons(session, user_id, company_name, canonical_product, canonical_style, cleaned_lines)
     user = session.get(User, user_id)
     if user and user.role == "worker":
@@ -161,6 +176,7 @@ def submit_shipment_report(
     status = "pending_review" if reasons else "auto_approved"
     report = ShipmentReport(
         user_id=user_id,
+        order_id=selected_order.id if selected_order else None,
         ship_date=ship_date,
         company_name=company_name,
         product_name=canonical_product,

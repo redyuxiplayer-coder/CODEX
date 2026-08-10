@@ -1,10 +1,11 @@
 {% for r in reports %}
 <article class="balance-item {% if r.status == 'rejected' %}danger-card{% elif r.status == 'pending_review' %}need-card{% else %}done-card{% endif %}">
-  <div class="item-title">{{ r.ship_date }} · {{ r.company_name }}</div>
-  <div class="item-sub">{{ r.product_name }} / {{ r.style_name }} / {{ shipment_status_label(r.status) }}</div>
+  <div class="item-title">{{ r.ship_date }} · {% if r.order %}{{ r.order.system_order_no }}{% else %}历史未绑定{% endif %}</div>
+  <div class="item-sub">{{ r.company_name }} / {{ r.product_name }} / {{ r.style_name }}{% if r.order and r.order.color_name %} / {{ r.order.color_name }}{% endif %} / {{ shipment_status_label(r.status) }}</div>
+  {% if r.order %}<div class="item-sub">下单日期：{{ r.order.order_date }}{% if r.order.customer_order_no %} / 客户单号：{{ r.order.customer_order_no }}{% endif %}</div>{% endif %}
   <div class="numbers">
     {% for l in r.lines %}
-    <span>{{ l.size }} <b>{{ l.quantity }}</b></span>
+    <span>{{ l.size }} <b>{{ l.quantity }}</b>{% if l.order_line and l.order_line.customer_sku %}<small> {{ l.order_line.customer_sku }}</small>{% endif %}</span>
     {% endfor %}
   </div>
   {% if r.photos %}
