@@ -70,12 +70,12 @@ def test_customer_export_uses_waybill_number_and_detail_sheet(db_session, tmp_pa
     detail = wb["发货明细"]
     detail_headers = [cell.value for cell in detail[1]]
     assert detail_headers[:7] == ["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号"]
-    assert detail_headers[7:9] == ["订单", "下单时间"]
+    assert detail_headers[7:] == ["订单", "下单时间", "客户订单号", "颜色", "SPU", "客户SKU"]
     detail_row = [cell.value for cell in detail[2]]
     assert detail_row[0] == "2026-07-17"
     assert detail_row[5] == 50
     assert detail_row[6] == "800209579798"
-    assert detail_row[7:9] == [formal_order.system_order_no, "2026-05-22"]
+    assert detail_row[7:] == [formal_order.system_order_no, "2026-05-22", None, None, "CPYL", None]
 
 
 def test_internal_export_shows_waybill_number_not_photos(db_session, tmp_path: Path):
@@ -135,3 +135,66 @@ def test_customer_export_leaves_formal_order_fields_blank_when_unbound(db_sessio
     row = [cell.value for cell in wb["客户发货明细"][2]]
     assert row[3] in (None, "")
     assert row[4] in (None, "")
+
+
+def test_exports_use_each_historical_line_formal_order_identity(db_session, tmp_path: Path):
+    from app.services.exports import export_company_workbook
+
+    admin = User(username="cross_order_export_admin", display_name="老板", password_hash="x", role="admin", is_active=True)
+    company = Company(name="跨订单导出客户", code="XDD", next_order_sequence=1)
+    spu = Spu(code="KDD", product_name="测试产品", style_name="测试款式")
+    db_session.add_all([admin, company, spu])
+    db_session.commit()
+    first_order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "红色",
+        "RED",
+        "2026-01-02",
+        [{"size": "S", "quantity": 100, "customer_sku": "SKU-RED-S"}],
+        customer_order_no="PO-RED",
+    )
+    second_order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "紫色",
+        "PURPLE",
+        "2026-03-04",
+        [{"size": "M", "quantity": 100, "customer_sku": "SKU-PURPLE-M"}],
+        customer_order_no="PO-PURPLE",
+    )
+    historical = ShipmentReport(
+        user_id=admin.id,
+        order_id=first_order.id,
+        ship_date="历史导入",
+        company_name=company.name,
+        product_name=spu.product_name,
+        style_name=spu.style_name,
+        status="auto_approved",
+    )
+    db_session.add(historical)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ShipmentLine(report_id=historical.id, order_line_id=first_order.lines[0].id, size="S", quantity=5),
+            ShipmentLine(report_id=historical.id, order_line_id=second_order.lines[0].id, size="M", quantity=6),
+        ]
+    )
+    db_session.commit()
+
+    customer_output = tmp_path / "跨订单客户版.xlsx"
+    internal_output = tmp_path / "跨订单内部版.xlsx"
+    export_customer_company_workbook(db_session, company.name, customer_output)
+    export_company_workbook(db_session, company.name, internal_output)
+
+    for ws in (load_workbook(customer_output)["发货明细"], load_workbook(internal_output)["发货流水"]):
+        headers = [cell.value for cell in ws[1]]
+        rows_by_size = {
+            row[headers.index("尺码")]: row
+            for row in ws.iter_rows(min_row=2, values_only=True)
+        }
+        order_index = headers.index("订单")
+        assert rows_by_size["S"][order_index:order_index + 2] == (first_order.system_order_no, "2026-01-02")
+        assert rows_by_size["M"][order_index:order_index + 2] == (second_order.system_order_no, "2026-03-04")
