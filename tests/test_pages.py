@@ -98,9 +98,19 @@ def test_admin_nav_hides_aliases_link_but_page_still_works():
     assert "款式统一" in page.text
 
 
-def test_admin_orders_page_uses_batch_edit_mode():
-    client = TestClient(create_app())
-    client.post("/login", data={"username": "zhangyong", "password": "test-admin-password"}, follow_redirects=True)
+def test_admin_orders_page_uses_batch_edit_mode(db_session):
+    from app.db import get_session
+    from app.models import User
+    from app.services.orders import create_order_line
+
+    admin = User(username="batch_mode_admin", display_name="老板", password_hash="x", role="admin", is_active=True)
+    db_session.add(admin)
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "S", 100, "2026-07-20")
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(admin.id))
 
     response = client.get("/admin/orders")
 
@@ -110,6 +120,7 @@ def test_admin_orders_page_uses_batch_edit_mode():
     assert "编辑当前页面" in response.text
     assert "批量保存" not in response.text
     assert "删除" in response.text
+    app.dependency_overrides.clear()
 
 
 def test_admin_orders_batch_update_saves_multiple_rows_once(db_session):
