@@ -74,6 +74,20 @@ async function uploadPhotos(row, event) {
             <div v-for="l in row.lines" :key="l.size">{{ l.size }} {{ l.quantity }}</div>
           </template>
         </el-table-column>
+        <el-table-column label="订单号/下单日期" min-width="140">
+          <template #default="{ row }">
+            <div v-for="l in row.lines" :key="`${l.size}-${l.order_line_id || 'unbound'}`">
+              <el-button
+                v-if="l.order_line_id"
+                type="primary"
+                link
+                size="small"
+                @click="$router.push(`/order-lines/${l.order_line_id}`)"
+              >{{ l.order_label }}</el-button>
+              <span v-else class="danger-text">未绑定订单</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="运单号" width="150">
           <template #default="{ row }">
             <el-input v-model="row.waybill_no" size="small" placeholder="运单号" style="width:110px" @change="saveWaybill(row)" />

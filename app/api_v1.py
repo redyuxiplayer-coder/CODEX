@@ -206,6 +206,25 @@ def _unbound_shipment_rows(session: Session, order: OrderLine) -> list[tuple[Shi
 
 
 def _report_dict(report: ShipmentReport) -> dict:
+    lines = []
+    for line in report.lines:
+        order = line.order_line
+        order_batch = order.batch if order else ""
+        order_date = order.order_date if order else ""
+        if order_batch and order_date:
+            order_label = f"{order_batch} · {order_date}"
+        else:
+            order_label = order_batch or order_date or (f"订单 #{order.id}" if order else "")
+        lines.append(
+            {
+                "size": line.size,
+                "quantity": line.quantity,
+                "order_line_id": line.order_line_id,
+                "order_date": order_date or "",
+                "order_batch": order_batch or "",
+                "order_label": order_label,
+            }
+        )
     return {
         "id": report.id,
         "ship_date": report.ship_date,
@@ -218,7 +237,7 @@ def _report_dict(report: ShipmentReport) -> dict:
         "note": report.note,
         "status": report.status,
         "review_reason": report.review_reason,
-        "lines": [{"size": line.size, "quantity": line.quantity} for line in report.lines],
+        "lines": lines,
         "photos": [{"id": photo.id} for photo in report.photos],
     }
 

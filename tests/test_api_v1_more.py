@@ -146,6 +146,66 @@ def test_shipments_list_filter_and_waybill_update(db_session):
     assert report.waybill_no == "YT999"
 
 
+def test_shipments_list_includes_bound_order_reference_per_line(db_session):
+    client, _admin, worker = _client(db_session)
+    dated_order = create_order_line(
+        db_session,
+        "源兴发",
+        "裁判",
+        "圆领裁判",
+        "M",
+        100,
+        order_date="2026-07-15",
+    )
+    batched_order = create_order_line(
+        db_session,
+        "源兴发",
+        "裁判",
+        "圆领裁判",
+        "L",
+        100,
+        order_date="2026-07-20",
+        batch="客户单-0720",
+    )
+    submit_shipment_report(
+        db_session,
+        worker.id,
+        "2026-08-04",
+        "源兴发",
+        "裁判",
+        "圆领裁判",
+        [
+            {"size": "M", "quantity": 10, "order_line_id": dated_order.id},
+            {"size": "L", "quantity": 20, "order_line_id": batched_order.id},
+        ],
+        [],
+        "",
+    )
+
+    response = client.get("/api/v1/shipments")
+
+    assert response.status_code == 200
+    lines = response.json()["reports"][0]["lines"]
+    assert lines == [
+        {
+            "size": "M",
+            "quantity": 10,
+            "order_line_id": dated_order.id,
+            "order_date": "2026-07-15",
+            "order_batch": "",
+            "order_label": "2026-07-15",
+        },
+        {
+            "size": "L",
+            "quantity": 20,
+            "order_line_id": batched_order.id,
+            "order_date": "2026-07-20",
+            "order_batch": "客户单-0720",
+            "order_label": "客户单-0720 · 2026-07-20",
+        },
+    ]
+
+
 def test_shipments_photos_upload(db_session, tmp_path):
     client, _admin, worker = _client(db_session)
     create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100)
