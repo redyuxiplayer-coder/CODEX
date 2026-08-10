@@ -945,7 +945,10 @@ def api_review_approve(
     admin = require_admin(request, session)
     from app.services.shipments import approve_report
 
-    approve_report(session, report_id, admin.id, note)
+    try:
+        approve_report(session, report_id, admin.id, note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
 
 
@@ -959,7 +962,10 @@ def api_review_reject(
     admin = require_admin(request, session)
     from app.services.shipments import reject_report
 
-    reject_report(session, report_id, admin.id, note)
+    try:
+        reject_report(session, report_id, admin.id, note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
 
 

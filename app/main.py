@@ -70,6 +70,7 @@ from app.services.returns import create_return_rework, list_return_reworks, set_
 from app.services.shipments import (
     approve_report,
     delete_own_pending_report,
+    ensure_report_not_archived,
     reject_report,
     resolve_order_line_id,
     submit_shipment_report,
@@ -1051,14 +1052,20 @@ def create_app() -> FastAPI:
     @app.post("/admin/review/{report_id}/approve")
     def admin_approve(request: Request, report_id: int, note: str = Form(""), session: Session = Depends(get_session)):
         admin = require_admin(request, session)
-        approve_report(session, report_id, admin.id, note)
+        try:
+            approve_report(session, report_id, admin.id, note)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         log_operation(session, admin.id, "shipment_approve", str(report_id), note)
         return RedirectResponse("/admin/review", status_code=303)
 
     @app.post("/admin/review/{report_id}/reject")
     def admin_reject(request: Request, report_id: int, note: str = Form(""), session: Session = Depends(get_session)):
         admin = require_admin(request, session)
-        reject_report(session, report_id, admin.id, note)
+        try:
+            reject_report(session, report_id, admin.id, note)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         log_operation(session, admin.id, "shipment_reject", str(report_id), note)
         return RedirectResponse("/admin/review", status_code=303)
 
@@ -1565,19 +1572,22 @@ def create_app() -> FastAPI:
             for index, (size, qty) in enumerate(zip(sizes, quantities))
             if size and qty
         ]
-        create_packing_draft(
-            session,
-            user.id,
-            pack_date,
-            company_name,
-            product_name,
-            style_name,
-            lines,
-            note,
-            [],
-            waybill_no,
-            order_id=order_id,
-        )
+        try:
+            create_packing_draft(
+                session,
+                user.id,
+                pack_date,
+                company_name,
+                product_name,
+                style_name,
+                lines,
+                note,
+                [],
+                waybill_no,
+                order_id=order_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.post("/mobile/today/{report_id}/update")
@@ -1597,7 +1607,10 @@ def create_app() -> FastAPI:
             for index, (size, qty) in enumerate(zip(sizes, quantities))
             if size and qty
         ]
-        update_packing_draft(session, report_id, user.id, lines, note, [], waybill_no)
+        try:
+            update_packing_draft(session, report_id, user.id, lines, note, [], waybill_no)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.post("/mobile/today/{report_id}/delete")
@@ -1609,7 +1622,10 @@ def create_app() -> FastAPI:
     @app.post("/mobile/today/{report_id}/submit")
     def mobile_today_submit(request: Request, report_id: int, session: Session = Depends(get_session)):
         user = require_user(request, session)
-        submit_packing_draft(session, report_id, user.id)
+        try:
+            submit_packing_draft(session, report_id, user.id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse("/mobile/today", status_code=303)
 
     @app.get("/admin/packing/{draft_id}/print")
@@ -1808,18 +1824,21 @@ def create_app() -> FastAPI:
             for index, (size, qty) in enumerate(zip(sizes, quantities))
             if size and qty
         ]
-        report = submit_shipment_report(
-            session,
-            user.id,
-            ship_date,
-            company_name,
-            product_name,
-            style_name,
-            lines,
-            [],
-            note,
-            order_id=order_id,
-        )
+        try:
+            report = submit_shipment_report(
+                session,
+                user.id,
+                ship_date,
+                company_name,
+                product_name,
+                style_name,
+                lines,
+                [],
+                note,
+                order_id=order_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         message = "已自动通过" if report.status == "auto_approved" else f"已提交待审核：{report.review_reason}"
         from app.models import PackingDraft
 
@@ -1879,6 +1898,10 @@ def create_app() -> FastAPI:
         report = session.get(ShipmentReport, report_id)
         if report is None or report.user_id != user.id:
             return RedirectResponse("/mobile/my-reports", status_code=303)
+        try:
+            ensure_report_not_archived(session, report)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         updates = []
         for index, (size, quantity_text) in enumerate(zip(sizes, quantities)):

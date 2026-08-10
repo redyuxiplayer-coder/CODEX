@@ -44,7 +44,14 @@ def create_packing_draft(
     order_id: int | None = None,
 ) -> PackingDraft:
     cleaned_lines = _clean_lines(lines)
-    selected_order = session.get(SalesOrder, int(order_id)) if order_id else None
+    selected_order = (
+        session.query(SalesOrder)
+        .filter(SalesOrder.id == int(order_id))
+        .with_for_update()
+        .one_or_none()
+        if order_id
+        else None
+    )
     if order_id and selected_order is None:
         raise ValueError("所选订单不存在")
     if selected_order is not None:
@@ -106,7 +113,12 @@ def update_packing_draft(
     draft = _get_own_draft(session, draft_id, user_id)
     cleaned_lines = _clean_lines(lines)
     if draft.order_id:
-        selected_order = session.get(SalesOrder, draft.order_id)
+        selected_order = (
+            session.query(SalesOrder)
+            .filter(SalesOrder.id == draft.order_id)
+            .with_for_update()
+            .one_or_none()
+        )
         if selected_order is None:
             raise ValueError("所选订单不存在")
         if get_open_archive(session, selected_order.id):

@@ -61,11 +61,15 @@ def _history_item(record: SalesOrderArchive) -> dict:
     }
 
 
-def _balance_rows(session: Session, order: SalesOrder) -> list[dict]:
+def order_balance_rows(session: Session, order: SalesOrder) -> list[dict]:
     active_line_ids = {int(line.id) for line in order.lines if line.is_active}
     if not active_line_ids:
         return []
-    rows = get_order_balances(session, company_name=order.company.name)
+    rows = get_order_balances(
+        session,
+        company_name=order.company.name,
+        include_inactive_companies=True,
+    )
     return [
         row
         for row in rows
@@ -82,7 +86,7 @@ def archive_state(session: Session, order: SalesOrder) -> dict:
         .order_by(SalesOrderArchive.archived_at.desc(), SalesOrderArchive.id.desc())
         .all()
     )
-    rows = _balance_rows(session, order) if active_lines else []
+    rows = order_balance_rows(session, order) if active_lines else []
     blocking_sizes = [
         {"size": row["size"], "remaining": int(row.get("remaining") or 0)}
         for row in rows

@@ -14,6 +14,32 @@ from app.services.quantities import parse_quantity
 APPROVED_STATUSES = {"auto_approved", "approved_after_edit"}
 
 
+def _lock_and_check_order_ids(session: Session, order_ids) -> None:
+    clean_ids = sorted({int(order_id) for order_id in order_ids if order_id})
+    if not clean_ids:
+        return
+    orders = (
+        session.query(SalesOrder)
+        .filter(SalesOrder.id.in_(clean_ids))
+        .order_by(SalesOrder.id)
+        .with_for_update()
+        .all()
+    )
+    for order in orders:
+        if get_open_archive(session, order.id):
+            raise ValueError("订单已归档，请先恢复")
+
+
+def ensure_report_not_archived(session: Session, report: ShipmentReport) -> None:
+    order_ids = {report.order_id} if report.order_id else set()
+    order_ids.update(
+        line.order_line.order_id
+        for line in report.lines
+        if line.order_line is not None and line.order_line.order_id
+    )
+    _lock_and_check_order_ids(session, order_ids)
+
+
 def resolve_order_line_id(
     session: Session,
     company_name: str,
@@ -160,7 +186,14 @@ def submit_shipment_report(
         for line in lines
         if str(line.get("size", "")).strip() and parse_quantity(line.get("quantity")) > 0
     ]
-    selected_order = session.get(SalesOrder, int(order_id)) if order_id else None
+    selected_order = (
+        session.query(SalesOrder)
+        .filter(SalesOrder.id == int(order_id))
+        .with_for_update()
+        .one_or_none()
+        if order_id
+        else None
+    )
     if order_id and selected_order is None:
         raise ValueError("所选订单不存在")
     if selected_order is not None:
@@ -176,10 +209,12 @@ def submit_shipment_report(
         canonical_product = selected_order.product_name
         canonical_style = selected_order.style_name
     else:
+        bound_order_ids = set()
         for line in cleaned_lines:
             bound_line = session.get(OrderLine, line.get("order_line_id")) if line.get("order_line_id") else None
-            if bound_line and bound_line.order_id and get_open_archive(session, bound_line.order_id):
-                raise ValueError("订单已归档，请先恢复")
+            if bound_line and bound_line.order_id:
+                bound_order_ids.add(bound_line.order_id)
+        _lock_and_check_order_ids(session, bound_order_ids)
         canonical_product, canonical_style = canonical_item(session, company_name, product_name, style_name)
     reasons = _review_reasons(session, user_id, company_name, canonical_product, canonical_style, cleaned_lines)
     user = session.get(User, user_id)
@@ -219,6 +254,7 @@ def submit_shipment_report(
 
 def approve_report(session: Session, report_id: int, admin_id: int, note: str = "") -> ShipmentReport:
     report = session.get(ShipmentReport, report_id)
+    ensure_report_not_archived(session, report)
     before = report.status
     report.status = "approved_after_edit"
     if note:
@@ -232,6 +268,7 @@ def approve_report(session: Session, report_id: int, admin_id: int, note: str = 
 
 def reject_report(session: Session, report_id: int, admin_id: int, note: str = "") -> ShipmentReport:
     report = session.get(ShipmentReport, report_id)
+    ensure_report_not_archived(session, report)
     before = report.status
     report.status = "rejected"
     if note:
@@ -245,6 +282,7 @@ def reject_report(session: Session, report_id: int, admin_id: int, note: str = "
 
 def edit_and_approve_report(session: Session, report_id: int, admin_id: int, replacement_lines: list[dict], note: str = "") -> ShipmentReport:
     report = session.get(ShipmentReport, report_id)
+    ensure_report_not_archived(session, report)
     before = json.dumps([{"size": line.size, "quantity": line.quantity} for line in report.lines], ensure_ascii=False)
     cleaned_lines = _resolve_lines_with_binding(session, report, replacement_lines)
     for line in list(report.lines):
@@ -280,6 +318,7 @@ def _get_own_pending_report(session: Session, report_id: int, user_id: int) -> S
 
 def update_own_pending_report(session: Session, report_id: int, user_id: int, replacement_lines: list[dict], note: str = "") -> ShipmentReport:
     report = _get_own_pending_report(session, report_id, user_id)
+    ensure_report_not_archived(session, report)
     cleaned_lines = _resolve_lines_with_binding(session, report, replacement_lines)
     for line in list(report.lines):
         session.delete(line)

@@ -62,13 +62,51 @@ def test_archive_script_preview_does_not_write(db_session):
 
 
 def test_archive_script_apply_uses_archive_service(db_session):
-    from scripts.archive_completed_sales_orders import apply_archive_candidates, collect_archive_candidates
+    from scripts.archive_completed_sales_orders import (
+        apply_archive_candidates,
+        build_archive_preview,
+        collect_archive_candidates,
+        verify_archive_rollout,
+    )
     from app.services.order_archives import archived_order_ids
 
     admin, completed, unfinished = setup_orders(db_session)
 
-    applied = apply_archive_candidates(db_session, collect_archive_candidates(db_session), admin.id)
+    candidates = collect_archive_candidates(db_session)
+    preview = build_archive_preview(
+        db_session,
+        [completed, unfinished],
+        candidate_ids={completed.id},
+    )
+    applied = apply_archive_candidates(db_session, candidates, admin.id)
+    verification = verify_archive_rollout(
+        db_session,
+        candidate_ids={completed.id},
+        protected_order_ids={unfinished.id},
+    )
 
+    assert preview == [
+        {
+            "order_id": completed.id,
+            "system_order_no": completed.system_order_no,
+            "order_date": "2026-08-01",
+            "candidate": True,
+            "sizes": [{"size": "S", "ordered": 10, "shipped": 10, "remaining": 0, "over_shipped": 0}],
+        },
+        {
+            "order_id": unfinished.id,
+            "system_order_no": unfinished.system_order_no,
+            "order_date": "2026-08-02",
+            "candidate": False,
+            "sizes": [{"size": "M", "ordered": 20, "shipped": 0, "remaining": 20, "over_shipped": 0}],
+        },
+    ]
     assert [record.order_id for record in applied] == [completed.id]
     assert archived_order_ids(db_session) == {completed.id}
     assert unfinished.id not in archived_order_ids(db_session)
+    assert verification == {
+        "ok": True,
+        "missing_archives": [],
+        "unexpected_archives": [],
+        "worker_visible_archived_lines": [],
+    }

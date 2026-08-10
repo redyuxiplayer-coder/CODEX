@@ -223,3 +223,40 @@ def test_order_line_resolver_skips_archived_preferred_line(db_session):
     )
 
     assert resolved == active_line.id
+
+
+def test_mobile_posts_return_controlled_error_for_archived_order(db_session):
+    worker, order, _ = _formal_orders(db_session)
+    draft = create_packing_draft(
+        db_session,
+        user_id=worker.id,
+        pack_date="2026-08-10",
+        company_name="",
+        product_name="",
+        style_name="",
+        lines=[{"size": "S", "quantity": 1, "order_line_id": order.lines[0].id}],
+        order_id=order.id,
+    )
+    db_session.add(SalesOrderArchive(order_id=order.id, archived_by=worker.id))
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app, raise_server_exceptions=False)
+    client.cookies.set("zy_user_id", str(worker.id))
+    data = {
+        "ship_date": "2026-08-10",
+        "pack_date": "2026-08-10",
+        "order_id": str(order.id),
+        "order_line_ids": [str(order.lines[0].id)],
+        "sizes": ["S"],
+        "quantities": ["1"],
+    }
+
+    direct = client.post("/mobile/report", data=data)
+    new_draft = client.post("/mobile/today/new", data=data)
+    submit_draft = client.post(f"/mobile/today/{draft.id}/submit")
+
+    for response in (direct, new_draft, submit_draft):
+        assert response.status_code == 400
+        assert response.json()["detail"] == "订单已归档，请先恢复"
+    app.dependency_overrides.clear()

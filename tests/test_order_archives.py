@@ -155,3 +155,73 @@ def test_archive_missing_order_is_rejected(db_session):
 
     with pytest.raises(ValueError, match="订单不存在"):
         archive_service().archive_sales_order(db_session, 999999, admin.id)
+
+
+def test_inactive_company_does_not_make_unshipped_order_archivable(db_session):
+    order, admin = make_order(db_session)
+    order.company.is_active = False
+    db_session.commit()
+
+    state = archive_service().archive_state(db_session, order)
+
+    assert state["can_archive"] is False
+    assert state["blocking_sizes"] == [
+        {"size": "S", "remaining": 100},
+        {"size": "M", "remaining": 50},
+    ]
+    with pytest.raises(ValueError, match="还需"):
+        archive_service().archive_sales_order(db_session, order.id, admin.id)
+
+
+def test_pending_report_cannot_be_approved_or_edited_after_archive(db_session):
+    from app.services.shipments import approve_report, edit_and_approve_report, reject_report, update_own_pending_report
+
+    order, admin = make_order(db_session)
+    approved = ship_order(db_session, order, admin, {"S": 100, "M": 50})
+    pending = ShipmentReport(
+        user_id=admin.id,
+        order_id=order.id,
+        ship_date="2026-08-10",
+        company_name=order.company.name,
+        product_name=order.product_name,
+        style_name=order.style_name,
+        status="pending_review",
+        review_reason="等待审核",
+        note="",
+    )
+    db_session.add(pending)
+    db_session.flush()
+    db_session.add(
+        ShipmentLine(
+            report_id=pending.id,
+            order_line_id=order.lines[0].id,
+            size="S",
+            quantity=1,
+        )
+    )
+    db_session.commit()
+    archive_service().archive_sales_order(db_session, order.id, admin.id)
+
+    with pytest.raises(ValueError, match="订单已归档，请先恢复"):
+        approve_report(db_session, pending.id, admin.id)
+    with pytest.raises(ValueError, match="订单已归档，请先恢复"):
+        edit_and_approve_report(
+            db_session,
+            pending.id,
+            admin.id,
+            [{"size": "S", "quantity": 2, "order_line_id": order.lines[0].id}],
+        )
+    with pytest.raises(ValueError, match="订单已归档，请先恢复"):
+        update_own_pending_report(
+            db_session,
+            pending.id,
+            admin.id,
+            [{"size": "S", "quantity": 2, "order_line_id": order.lines[0].id}],
+        )
+    with pytest.raises(ValueError, match="订单已归档，请先恢复"):
+        reject_report(db_session, approved.id, admin.id)
+    db_session.refresh(pending)
+    assert pending.status == "pending_review"
+    assert pending.lines[0].quantity == 1
+    db_session.refresh(approved)
+    assert approved.status == "approved_after_edit"

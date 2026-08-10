@@ -269,7 +269,11 @@ def approved_shipments_subquery(session: Session):
     )
 
 
-def get_order_balances(session: Session, company_name: str | None = None) -> list[dict]:
+def get_order_balances(
+    session: Session,
+    company_name: str | None = None,
+    include_inactive_companies: bool = False,
+) -> list[dict]:
     order_query = (
         session.query(
             OrderLine.id.label("id"),
@@ -289,8 +293,10 @@ def get_order_balances(session: Session, company_name: str | None = None) -> lis
         )
         .join(Company, Company.id == OrderLine.company_id)
         .outerjoin(SalesOrder, SalesOrder.id == OrderLine.order_id)
-        .filter(OrderLine.is_active.is_(True), Company.is_active.is_(True))
+        .filter(OrderLine.is_active.is_(True))
     )
+    if not include_inactive_companies:
+        order_query = order_query.filter(Company.is_active.is_(True))
     if company_name:
         order_query = order_query.filter(Company.name == company_name)
     order_rows = order_query.order_by(Company.name, OrderLine.product_name, OrderLine.style_name, OrderLine.size, OrderLine.created_at, OrderLine.id).all()

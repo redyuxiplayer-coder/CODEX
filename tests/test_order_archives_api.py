@@ -98,3 +98,38 @@ def test_archive_filter_rejects_unknown_value(db_session):
     response = client.get("/api/v1/sales-orders?archive_status=unknown")
 
     assert response.status_code == 400
+
+
+def test_review_api_returns_controlled_error_for_archived_order(db_session):
+    client, _, order = setup_archive_api(db_session)
+    worker = db_session.query(User).filter_by(role="worker").one()
+    pending = ShipmentReport(
+        user_id=worker.id,
+        order_id=order.id,
+        ship_date="2026-08-10",
+        company_name=order.company.name,
+        product_name=order.product_name,
+        style_name=order.style_name,
+        status="pending_review",
+        review_reason="等待审核",
+    )
+    db_session.add(pending)
+    db_session.flush()
+    db_session.add(
+        ShipmentLine(
+            report_id=pending.id,
+            order_line_id=order.lines[0].id,
+            size="S",
+            quantity=1,
+        )
+    )
+    db_session.commit()
+    assert client.post(f"/api/v1/sales-orders/{order.id}/archive").status_code == 200
+
+    response = client.post(f"/api/v1/review/{pending.id}/approve")
+    reject_response = client.post(f"/api/v1/review/{pending.id}/reject")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "订单已归档，请先恢复"
+    assert reject_response.status_code == 400
+    assert reject_response.json()["detail"] == "订单已归档，请先恢复"
