@@ -212,3 +212,26 @@ def test_exports_use_each_historical_line_formal_order_identity(db_session, tmp_
         order_index = headers.index("订单")
         assert rows_by_size["S"][order_index:order_index + 2] == (first_order.system_order_no, "2026-01-02")
         assert rows_by_size["M"][order_index:order_index + 2] == (second_order.system_order_no, "2026-03-04")
+
+
+def test_customer_and_internal_exports_keep_archived_order(db_session, tmp_path: Path):
+    from app.models import SalesOrderArchive
+    from app.services.exports import export_customer_total_workbook, export_total_workbook
+
+    formal_order, _ = _setup(db_session)
+    admin = db_session.query(User).filter_by(role="admin").one()
+    db_session.add(SalesOrderArchive(order_id=formal_order.id, archived_by=admin.id))
+    db_session.commit()
+    internal_path = export_total_workbook(db_session, tmp_path / "归档内部版.xlsx")
+    customer_path = export_customer_total_workbook(db_session, tmp_path / "归档客户版.xlsx")
+
+    for path in (internal_path, customer_path):
+        workbook = load_workbook(path)
+        values = {
+            str(value)
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows(values_only=True)
+            for value in row
+            if value is not None
+        }
+        assert formal_order.system_order_no in values
