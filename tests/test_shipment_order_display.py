@@ -112,9 +112,9 @@ def test_daily_shipment_export_identifies_order_and_customer_sku(db_session, tmp
     ws = load_workbook(output)["发货流水"]
     headers = [cell.value for cell in ws[1]]
     row = {headers[index]: cell.value for index, cell in enumerate(ws[2])}
-    assert row["系统订单号"] == "YXF-00001-JS-RED"
+    assert row["订单"] == "YXF-00001-JS-RED"
     assert row["客户订单号"] == "PO-7788"
-    assert row["下单日期"] == "2026-08-09"
+    assert row["下单时间"] == "2026-08-09"
     assert row["颜色"] == "红色"
     assert row["SPU"] == "JS"
     assert row["客户SKU"] == "FZB1209001-01-red-S"

@@ -183,11 +183,11 @@ def add_balance_sheet(
     ws = wb.create_sheet(title)
     shipment_details = shipment_details or {}
     waybill_numbers = waybill_numbers or {}
-    ws.append(["公司", "产品", "款式", "订单", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量", "超发数量", "快递单号", "客户SKU"])
+    ws.append(["公司", "产品", "款式", "订单", "下单时间", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量", "超发数量", "快递单号", "客户SKU"])
     for row in balances:
         key = _balance_detail_key(row)
         ws.append([
-            row["company"], row["product"], row["style"], row.get("order_ref", ""), row["size"], row.get("sku", ""), shipment_details.get(key, ""),
+            row["company"], row["product"], row["style"], row.get("system_order_no", ""), row.get("formal_order_date", ""), row["size"], row.get("sku", ""), shipment_details.get(key, ""),
             row["ordered"], row["shipped"], row["remaining"], row["over_shipped"], waybill_numbers.get(key, ""), row.get("customer_sku", ""),
         ])
     style_sheet(ws)
@@ -203,15 +203,21 @@ def add_customer_balance_sheet(
 ) -> None:
     ws = wb.create_sheet(title)
     waybill_numbers = waybill_numbers or {}
-    ws.append(["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号", "客户SKU"])
+    ws.append(["公司", "产品", "款式", "订单", "下单时间", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号", "客户SKU"])
     for row in balances:
         key = _balance_detail_key(row)
         ws.append([
-            row["company"], row["product"], row["style"], row.get("order_ref", ""), row["size"], row.get("sku", ""),
+            row["company"], row["product"], row["style"], row.get("system_order_no", ""), row.get("formal_order_date", ""), row["size"], row.get("sku", ""),
             row["ordered"], row["shipped"], row["remaining"], waybill_numbers.get(key, ""), row.get("customer_sku", ""),
         ])
     style_sheet(ws)
     return ws
+
+
+def _formal_order_for_shipment_line(report: ShipmentReport, line):
+    if line.order_line is not None and line.order_line.order is not None:
+        return line.order_line.order
+    return report.order
 
 
 def shipment_rows(session: Session, ship_date: str | None = None, company_name: str | None = None, user_id: int | None = None):
@@ -224,8 +230,8 @@ def shipment_rows(session: Session, ship_date: str | None = None, company_name: 
         query = query.filter(ShipmentReport.user_id == user_id)
     rows = []
     for report in query.all():
-        order = report.order
         for line in report.lines:
+            order = _formal_order_for_shipment_line(report, line)
             rows.append([
                 report.ship_date,
                 report.created_at.strftime("%Y-%m-%d %H:%M"),
@@ -239,8 +245,8 @@ def shipment_rows(session: Session, ship_date: str | None = None, company_name: 
                 report.review_reason,
                 report.note,
                 order.system_order_no if order else "",
-                order.customer_order_no if order else "",
                 order.order_date if order else "",
+                order.customer_order_no if order else "",
                 order.color_name if order else "",
                 order.spu.code if order and order.spu else "",
                 line.order_line.customer_sku if line.order_line else "",
@@ -252,7 +258,7 @@ def add_shipments_sheet(wb: Workbook, session: Session, title: str = "发货流�
     ws = wb.create_sheet(title)
     ws.append([
         "发货日期", "上报时间", "上报人", "公司", "产品", "款式", "尺码", "数量", "状态", "异常原因", "备注",
-        "系统订单号", "客户订单号", "下单日期", "颜色", "SPU", "客户SKU",
+        "订单", "下单时间", "客户订单号", "颜色", "SPU", "客户SKU",
     ])
     for row in shipment_rows(session, **filters):
         ws.append(row)
@@ -263,7 +269,7 @@ def add_customer_detail_sheet(wb: Workbook, session: Session, company_name: str 
     ws = wb.create_sheet("发货明细")
     ws.append([
         "发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号",
-        "系统订单号", "客户订单号", "下单日期", "颜色", "SPU", "客户SKU",
+        "订单", "下单时间", "客户订单号", "颜色", "SPU", "客户SKU",
     ])
     query = session.query(ShipmentReport).filter(
         ShipmentReport.status.in_(("auto_approved", "approved_after_edit"))
@@ -271,13 +277,13 @@ def add_customer_detail_sheet(wb: Workbook, session: Session, company_name: str 
     if company_name:
         query = query.filter(ShipmentReport.company_name == company_name)
     for report in query.order_by(ShipmentReport.ship_date, ShipmentReport.created_at).all():
-        order = report.order
         waybill_no = ""
         if report.waybill is not None:
             waybill_no = report.waybill.waybill_no or ""
         elif report.waybill_no:
             waybill_no = report.waybill_no
         for line in report.lines:
+            order = _formal_order_for_shipment_line(report, line)
             ws.append([
                 report.ship_date,
                 report.company_name,
@@ -287,8 +293,8 @@ def add_customer_detail_sheet(wb: Workbook, session: Session, company_name: str 
                 line.quantity,
                 waybill_no,
                 order.system_order_no if order else "",
-                order.customer_order_no if order else "",
                 order.order_date if order else "",
+                order.customer_order_no if order else "",
                 order.color_name if order else "",
                 order.spu.code if order and order.spu else "",
                 line.order_line.customer_sku if line.order_line else "",

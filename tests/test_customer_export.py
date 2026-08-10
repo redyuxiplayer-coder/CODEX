@@ -54,7 +54,7 @@ def test_balance_projection_exposes_formal_order_number_and_date(db_session):
 
 
 def test_customer_export_uses_waybill_number_and_detail_sheet(db_session, tmp_path: Path):
-    _setup(db_session)
+    formal_order, _order_line = _setup(db_session)
     output = tmp_path / "茉莉客户版.xlsx"
 
     export_customer_company_workbook(db_session, "广东茉莉", output)
@@ -63,32 +63,75 @@ def test_customer_export_uses_waybill_number_and_detail_sheet(db_session, tmp_pa
     assert wb.sheetnames == ["客户发货明细", "发货明细"]
     main = wb["客户发货明细"]
     headers = [cell.value for cell in main[1]]
-    assert headers == ["公司", "产品", "款式", "订单", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号", "客户SKU"]
+    assert headers[:6] == ["公司", "产品", "款式", "订单", "下单时间", "尺码"]
     values = [cell.value for cell in main[2]]
-    assert values[9] == "800209579798"
+    assert values[3:5] == [formal_order.system_order_no, "2026-05-22"]
+    assert values[10] == "800209579798"
     detail = wb["发货明细"]
     detail_headers = [cell.value for cell in detail[1]]
     assert detail_headers[:7] == ["发货日期", "公司", "产品", "款式", "尺码", "数量", "快递单号"]
-    assert detail_headers[7:] == ["系统订单号", "客户订单号", "下单日期", "颜色", "SPU", "客户SKU"]
+    assert detail_headers[7:9] == ["订单", "下单时间"]
     detail_row = [cell.value for cell in detail[2]]
     assert detail_row[0] == "2026-07-17"
     assert detail_row[5] == 50
     assert detail_row[6] == "800209579798"
+    assert detail_row[7:9] == [formal_order.system_order_no, "2026-05-22"]
 
 
 def test_internal_export_shows_waybill_number_not_photos(db_session, tmp_path: Path):
     from app.services.exports import export_company_workbook
 
-    _setup(db_session)
+    formal_order, _order_line = _setup(db_session)
     output = tmp_path / "茉莉内部版.xlsx"
 
     export_company_workbook(db_session, "广东茉莉", output)
 
     wb = load_workbook(output)
-    ws = wb["订单发货明细"]
-    headers = [cell.value for cell in ws[1]]
-    assert "快递单号" in headers
-    assert "快递面单" not in headers
-    rows = [[cell.value for cell in row] for row in ws.iter_rows(min_row=2)]
-    waybill_index = headers.index("快递单号")
-    assert any(row[waybill_index] == "800209579798" for row in rows)
+    main = wb["订单发货明细"]
+    main_headers = [cell.value for cell in main[1]]
+    assert main_headers[:6] == ["公司", "产品", "款式", "订单", "下单时间", "尺码"]
+    assert "快递单号" in main_headers
+    assert "快递面单" not in main_headers
+    main_row = [cell.value for cell in main[2]]
+    assert main_row[3:5] == [formal_order.system_order_no, "2026-05-22"]
+    waybill_index = main_headers.index("快递单号")
+    assert main_row[waybill_index] == "800209579798"
+    shipments = wb["发货流水"]
+    shipment_headers = [cell.value for cell in shipments[1]]
+    order_index = shipment_headers.index("订单")
+    assert shipment_headers[order_index + 1] == "下单时间"
+    shipment_row = [cell.value for cell in shipments[2]]
+    assert shipment_row[order_index:order_index + 2] == [formal_order.system_order_no, "2026-05-22"]
+
+
+def test_total_exports_keep_order_and_add_order_time_on_unshipped_sheets(db_session, tmp_path: Path):
+    from app.services.exports import export_customer_total_workbook, export_total_workbook
+
+    formal_order, _order_line = _setup(db_session)
+    internal_output = tmp_path / "内部总表.xlsx"
+    customer_output = tmp_path / "客户总表.xlsx"
+
+    export_total_workbook(db_session, internal_output)
+    export_customer_total_workbook(db_session, customer_output)
+
+    for path in (internal_output, customer_output):
+        wb = load_workbook(path)
+        ws = wb["未发货明细"]
+        headers = [cell.value for cell in ws[1]]
+        assert headers[:6] == ["公司", "产品", "款式", "订单", "下单时间", "尺码"]
+        row = [cell.value for cell in ws[2]]
+        assert row[3:5] == [formal_order.system_order_no, "2026-05-22"]
+
+
+def test_customer_export_leaves_formal_order_fields_blank_when_unbound(db_session, tmp_path: Path):
+    from app.services.orders import create_order_line
+
+    create_order_line(db_session, "无绑定公司", "测试产品", "测试款式", "S", 10, order_date="2026-05-01")
+    output = tmp_path / "未绑定客户版.xlsx"
+
+    export_customer_company_workbook(db_session, "无绑定公司", output)
+
+    wb = load_workbook(output)
+    row = [cell.value for cell in wb["客户发货明细"][2]]
+    assert row[3] in (None, "")
+    assert row[4] in (None, "")
