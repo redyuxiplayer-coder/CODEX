@@ -57,6 +57,23 @@ def test_formal_order_tables_and_columns_are_registered():
     assert "order_id" in report_columns
 
 
+def test_sales_order_archive_table_tracks_archive_and_restore_history():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+
+    assert "sales_order_archives" in inspector.get_table_names()
+    columns = {column["name"] for column in inspector.get_columns("sales_order_archives")}
+    assert {
+        "id",
+        "order_id",
+        "archived_by",
+        "archived_at",
+        "restored_by",
+        "restored_at",
+    }.issubset(columns)
+
+
 def test_schema_updates_add_formal_order_columns_to_legacy_sqlite():
     legacy_engine = create_engine("sqlite:///:memory:")
     with legacy_engine.begin() as connection:
@@ -99,6 +116,16 @@ def test_postgres_formal_order_migration_contains_required_schema_and_grants():
     assert "ALTER TABLE shipment_reports ADD COLUMN IF NOT EXISTS order_id" in migration
     assert "GRANT ALL PRIVILEGES ON TABLE spus, sales_orders TO zy_shipping" in migration
     assert "ALTER TABLE sales_orders DISABLE ROW LEVEL SECURITY" in migration
+
+
+def test_postgres_order_archive_migration_is_idempotent_and_grants_app_access():
+    migration = Path("scripts/migration_2026_08_10_sales_order_archives.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS sales_order_archives" in migration
+    assert "CREATE INDEX IF NOT EXISTS ix_sales_order_archives_order_id" in migration
+    assert "CREATE INDEX IF NOT EXISTS ix_sales_order_archives_restored_at" in migration
+    assert "GRANT ALL PRIVILEGES ON TABLE sales_order_archives TO zy_shipping" in migration
+    assert "GRANT USAGE, SELECT ON SEQUENCE sales_order_archives_id_seq TO zy_shipping" in migration
 
 
 def test_waybill_table_and_link_column_registered():

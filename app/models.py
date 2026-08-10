@@ -72,6 +72,21 @@ class SalesOrder(Base):
     lines: Mapped[list["OrderLine"]] = relationship(back_populates="order")
 
 
+class SalesOrderArchive(Base):
+    __tablename__ = "sales_order_archives"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), index=True)
+    archived_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+    restored_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    restored_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+    order: Mapped[SalesOrder] = relationship()
+    archiver: Mapped[User] = relationship(foreign_keys=[archived_by])
+    restorer: Mapped[User | None] = relationship(foreign_keys=[restored_by])
+
+
 class OrderLine(Base):
     __tablename__ = "order_lines"
 
