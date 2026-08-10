@@ -40,6 +40,12 @@ from app.services.logistics import (
     update_waybill_record,
 )
 from app.services.operation_logs import recent_operation_logs
+from app.services.order_archives import (
+    archive_sales_order,
+    archive_state,
+    archived_order_ids,
+    restore_sales_order,
+)
 from app.services.orders import (
     build_structured_note,
     clean_order_lines_from_form,
@@ -133,7 +139,14 @@ def _spu_dict(spu: Spu) -> dict:
     }
 
 
-def _sales_order_dict(order: SalesOrder) -> dict:
+def _sales_order_dict(order: SalesOrder, state: dict | None = None) -> dict:
+    archive_info = state or {
+        "is_archived": False,
+        "can_archive": False,
+        "blocking_sizes": [],
+        "current_archive": None,
+        "history": [],
+    }
     return {
         "id": order.id,
         "system_order_no": order.system_order_no,
@@ -158,6 +171,7 @@ def _sales_order_dict(order: SalesOrder) -> dict:
             }
             for line in order.lines
         ],
+        **archive_info,
     }
 
 
@@ -592,10 +606,20 @@ def api_sales_orders(
     request: Request,
     company_id: int | None = None,
     q: str = "",
+    archive_status: str = "active",
     session: Session = Depends(get_session),
 ):
     require_admin(request, session)
+    if archive_status not in {"active", "archived", "all"}:
+        raise HTTPException(status_code=400, detail="归档筛选值无效")
+    hidden_order_ids = archived_order_ids(session)
     query = session.query(SalesOrder).order_by(SalesOrder.created_at.desc(), SalesOrder.id.desc())
+    if archive_status == "active" and hidden_order_ids:
+        query = query.filter(~SalesOrder.id.in_(hidden_order_ids))
+    elif archive_status == "archived":
+        if not hidden_order_ids:
+            return {"orders": []}
+        query = query.filter(SalesOrder.id.in_(hidden_order_ids))
     if company_id is not None:
         query = query.filter(SalesOrder.company_id == company_id)
     text_query = q.strip()
@@ -606,7 +630,21 @@ def api_sales_orders(
             | (SalesOrder.customer_order_no.ilike(like))
             | (SalesOrder.style_name.ilike(like))
         )
-    return {"orders": [_sales_order_dict(order) for order in query.limit(200).all()]}
+    return {
+        "orders": [
+            _sales_order_dict(
+                order,
+                {
+                    "is_archived": order.id in hidden_order_ids,
+                    "can_archive": False,
+                    "blocking_sizes": [],
+                    "current_archive": None,
+                    "history": [],
+                },
+            )
+            for order in query.limit(200).all()
+        ]
+    }
 
 
 @router.get("/sales-orders/{order_id}")
@@ -619,7 +657,37 @@ def api_sales_order_detail(
     order = session.get(SalesOrder, order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="订单不存在")
-    return _sales_order_dict(order)
+    return _sales_order_dict(order, archive_state(session, order))
+
+
+@router.post("/sales-orders/{order_id}/archive")
+def api_archive_sales_order(
+    request: Request,
+    order_id: int,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    try:
+        archive_sales_order(session, order_id, admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    order = session.get(SalesOrder, order_id)
+    return _sales_order_dict(order, archive_state(session, order))
+
+
+@router.post("/sales-orders/{order_id}/restore")
+def api_restore_sales_order(
+    request: Request,
+    order_id: int,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    try:
+        restore_sales_order(session, order_id, admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    order = session.get(SalesOrder, order_id)
+    return _sales_order_dict(order, archive_state(session, order))
 
 
 @router.post("/sales-orders")
