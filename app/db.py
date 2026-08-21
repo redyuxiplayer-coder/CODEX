@@ -70,7 +70,10 @@ def ensure_schema_updates(target_engine=None) -> None:
         {
             "submitted_report_id": "INTEGER",
             "package_no": "VARCHAR(40) DEFAULT ''",
+            "shipping_method": "VARCHAR(20) DEFAULT ''",
             "waybill_no": "VARCHAR(80) DEFAULT ''",
+            "package_count": "INTEGER DEFAULT 0",
+            "weight_kg": "FLOAT DEFAULT 0",
             "order_id": "INTEGER",
         },
     )

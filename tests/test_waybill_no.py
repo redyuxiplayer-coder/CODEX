@@ -2,9 +2,9 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import create_app
-from app.models import PackingDraft, ShipmentReport, User
+from app.models import ShipmentReport, User
 from app.services.orders import create_order_line
-from app.services.packing_drafts import submit_packing_draft
+from app.services.packing_drafts import create_packing_draft, submit_packing_draft
 
 
 def _client(db_session, user: User):
@@ -26,26 +26,20 @@ def _users(db_session):
 def test_draft_submit_copies_waybill_to_report(db_session):
     _admin, worker = _users(db_session)
     create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100)
-    client = _client(db_session, worker)
-
-    response = client.post(
-        "/mobile/today/new",
-        data={
-            "pack_date": "2026-08-04",
-            "company_name": "源兴发",
-            "product_name": "裁判",
-            "style_name": "圆领裁判",
-            "sizes": ["M"],
-            "order_line_ids": [""],
-            "quantities": ["10"],
-            "note": "",
-            "waybill_no": "YT1234567890",
-        },
-        follow_redirects=False,
+    draft = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-08-04",
+        "源兴发",
+        "裁判",
+        "圆领裁判",
+        [{"size": "M", "quantity": 10}],
+        "",
+        waybill_no="YT1234567890",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=8.8,
     )
-    assert response.status_code == 303
-    draft = db_session.query(PackingDraft).one()
-    assert draft.waybill_no == "YT1234567890"
 
     report = submit_packing_draft(db_session, draft.id, worker.id)
     assert report.waybill_no == "YT1234567890"

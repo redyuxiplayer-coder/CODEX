@@ -19,7 +19,7 @@ def _delete_entries_for_line(session: Session, order_line_id: int) -> None:
         session.delete(entry)
 
 
-def recompute_order_ledger(session: Session, order_line_id: int) -> None:
+def recompute_order_ledger(session: Session, order_line_id: int, *, commit: bool = True) -> None:
     """按来源表重建订单行流水：发货、退货/返工、调整（含报废）、关闭。"""
     _delete_entries_for_line(session, order_line_id)
     session.flush()
@@ -110,10 +110,12 @@ def recompute_order_ledger(session: Session, order_line_id: int) -> None:
                 reason="历史导入未绑定发货（按款式归入本单）",
             )
         )
-    session.commit()
+    session.flush()
+    if commit:
+        session.commit()
 
 
-def recompute_for_report(session: Session, report_id: int) -> None:
+def recompute_for_report(session: Session, report_id: int, *, commit: bool = True) -> None:
     """重建某发货单涉及的订单行流水。"""
     order_line_ids = {
         int(line.order_line_id)
@@ -121,7 +123,10 @@ def recompute_for_report(session: Session, report_id: int) -> None:
         if line.order_line_id
     }
     for order_line_id in order_line_ids:
-        recompute_order_ledger(session, order_line_id)
+        recompute_order_ledger(session, order_line_id, commit=False)
+    session.flush()
+    if commit:
+        session.commit()
 
 
 def _bound_shipped_for_line(session: Session, order_line_id: int) -> int:

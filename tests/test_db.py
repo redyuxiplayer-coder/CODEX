@@ -36,7 +36,7 @@ def test_new_ledger_tables_and_columns_are_registered():
     sku_columns = {c["name"] for c in inspector.get_columns("sku_mappings")}
     assert "barcode" in sku_columns
     draft_columns = {c["name"] for c in inspector.get_columns("packing_drafts")}
-    assert {"package_no", "waybill_no"}.issubset(draft_columns)
+    assert {"package_no", "shipping_method", "waybill_no", "package_count", "weight_kg"}.issubset(draft_columns)
     report_columns = {c["name"] for c in inspector.get_columns("shipment_reports")}
     assert "waybill_no" in report_columns
 
@@ -52,7 +52,7 @@ def test_formal_order_tables_and_columns_are_registered():
     order_line_columns = {c["name"] for c in inspector.get_columns("order_lines")}
     assert {"order_id", "customer_sku"}.issubset(order_line_columns)
     draft_columns = {c["name"] for c in inspector.get_columns("packing_drafts")}
-    assert "order_id" in draft_columns
+    assert {"order_id", "shipping_method", "package_count", "weight_kg"}.issubset(draft_columns)
     report_columns = {c["name"] for c in inspector.get_columns("shipment_reports")}
     assert "order_id" in report_columns
 
@@ -102,7 +102,9 @@ def test_schema_updates_add_formal_order_columns_to_legacy_sqlite():
     assert {"order_id", "customer_sku"}.issubset(
         {c["name"] for c in inspector.get_columns("order_lines")}
     )
-    assert "order_id" in {c["name"] for c in inspector.get_columns("packing_drafts")}
+    assert {"order_id", "shipping_method", "package_count", "weight_kg"}.issubset(
+        {c["name"] for c in inspector.get_columns("packing_drafts")}
+    )
     assert "order_id" in {c["name"] for c in inspector.get_columns("shipment_reports")}
 
 
@@ -136,3 +138,12 @@ def test_waybill_table_and_link_column_registered():
     assert "waybill_records" in tables
     report_columns = {c["name"] for c in inspector.get_columns("shipment_reports")}
     assert "waybill_id" in report_columns
+
+
+def test_postgres_packing_logistics_migration_is_idempotent_and_grants_app_access():
+    migration = Path("scripts/migration_2026_08_21_packing_logistics.sql").read_text(encoding="utf-8")
+
+    assert "ALTER TABLE packing_drafts ADD COLUMN IF NOT EXISTS shipping_method" in migration
+    assert "ALTER TABLE packing_drafts ADD COLUMN IF NOT EXISTS package_count" in migration
+    assert "ALTER TABLE packing_drafts ADD COLUMN IF NOT EXISTS weight_kg" in migration
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE packing_drafts TO zy_shipping" in migration

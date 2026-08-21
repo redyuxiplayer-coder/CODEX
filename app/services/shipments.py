@@ -176,6 +176,7 @@ def submit_shipment_report(
     note: str = "",
     waybill_no: str = "",
     order_id: int | None = None,
+    commit: bool = True,
 ) -> ShipmentReport:
     cleaned_lines = [
         {
@@ -246,9 +247,11 @@ def submit_shipment_report(
         )
     for path in photo_paths or []:
         session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
-    session.commit()
-    session.refresh(report)
-    recompute_for_report(session, report.id)
+    session.flush()
+    recompute_for_report(session, report.id, commit=False)
+    if commit:
+        session.commit()
+        session.refresh(report)
     return report
 
 

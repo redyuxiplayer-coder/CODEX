@@ -17,6 +17,41 @@ CHANNEL_KEYWORDS = [
 ]
 
 
+def shipping_method_label(shipping_method: str) -> str:
+    method = (shipping_method or "").strip()
+    if method == "courier":
+        return "快递"
+    if method == "huolala":
+        return "货拉拉"
+    raise ValueError("请选择发货方式")
+
+
+def matching_waybill_or_none(
+    session: Session,
+    *,
+    company_name: str,
+    ship_date: str,
+    waybill_no: str,
+    package_count: int,
+    weight_kg: float,
+) -> WaybillRecord | None:
+    normalized_waybill = (waybill_no or "").strip()
+    if not normalized_waybill:
+        return None
+    record = session.query(WaybillRecord).filter_by(waybill_no=normalized_waybill).one_or_none()
+    if record is None:
+        return None
+    if record.company_name != (company_name or "").strip():
+        raise ValueError("同一物流识别号的公司必须一致")
+    if record.ship_date != (ship_date or "").strip():
+        raise ValueError("同一物流识别号的发货日期必须一致")
+    if int(record.package_count or 0) != int(package_count or 0):
+        raise ValueError("同一物流识别号的包裹件数必须一致")
+    if abs(float(record.weight_kg or 0) - float(weight_kg or 0)) > 1e-6:
+        raise ValueError("同一物流识别号的总重量必须一致")
+    return record
+
+
 def classify_channel(note: str, ship_date: str = "") -> str:
     """根据备注关键词判断快递渠道；历史导入无渠道信息。"""
     if ship_date == "历史导入":
@@ -38,6 +73,7 @@ def create_waybill_record(
     weight_kg: float = 0,
     package_count: int = 0,
     note: str = "",
+    commit: bool = True,
 ) -> WaybillRecord:
     record = WaybillRecord(
         company_name=(company_name or "").strip(),
@@ -50,8 +86,10 @@ def create_waybill_record(
         created_by=int(user_id),
     )
     session.add(record)
-    session.commit()
-    session.refresh(record)
+    session.flush()
+    if commit:
+        session.commit()
+        session.refresh(record)
     return record
 
 

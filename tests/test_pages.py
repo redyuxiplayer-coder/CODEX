@@ -951,6 +951,11 @@ def test_mobile_packing_draft_submit_keeps_order_line_id_on_shipment(db_session)
         [{"order_line_id": order.id, "size": "L", "quantity": "100"}],
         "按单提交",
         [],
+        "YT-PAGE-SUBMIT-001",
+        None,
+        "courier",
+        1,
+        2.0,
     )
 
     app = create_app()
@@ -987,6 +992,11 @@ def test_mobile_report_hides_submitted_package_draft(db_session):
         [{"size": "L", "quantity": "100"}],
         "待提交",
         [],
+        "YT-PAGE-HIDE-001",
+        None,
+        "courier",
+        1,
+        2.1,
     )
     submit_packing_draft(db_session, draft.id, worker.id)
 
@@ -1025,6 +1035,11 @@ def test_mobile_report_draft_rows_have_plus_button(db_session):
         [{"size": "L", "quantity": "100"}],
         "待提交",
         [],
+        "YT-PAGE-PLUS-001",
+        None,
+        "courier",
+        1,
+        2.2,
     )
 
     app = create_app()

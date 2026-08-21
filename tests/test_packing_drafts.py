@@ -1,8 +1,11 @@
-from app.models import PackingDraft, User
+import pytest
+
+from app.models import PackingDraft, ShipmentReport, User, WaybillRecord
 from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import create_app
+from app.services.logistics import create_waybill_record
 from app.services.orders import create_order_line, get_order_balances
 from app.services.packing_drafts import create_packing_draft, delete_packing_draft, submit_packing_draft, update_packing_draft
 
@@ -22,8 +25,22 @@ def test_worker_can_edit_packing_draft_without_shipping_count(db_session):
         "万圣节-僵尸棒球",
         [{"size": "L", "quantity": 100}],
         "先包100",
+        waybill_no="YT-EDIT-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.5,
     )
-    updated = update_packing_draft(db_session, draft.id, worker.id, [{"size": "L", "quantity": 120}], "改成120")
+    updated = update_packing_draft(
+        db_session,
+        draft.id,
+        worker.id,
+        [{"size": "L", "quantity": 120}],
+        "改成120",
+        waybill_no="YT-EDIT-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.5,
+    )
 
     assert updated.note == "改成120"
     assert [(line.size, line.quantity) for line in updated.lines] == [("L", 120)]
@@ -37,7 +54,20 @@ def test_submit_packing_draft_creates_pending_report_and_keeps_package(db_sessio
     db_session.add(worker)
     db_session.commit()
     create_order_line(db_session, "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", "L", 400)
-    draft = create_packing_draft(db_session, worker.id, "2026-07-17", "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", [{"size": "L", "quantity": 100}], "")
+    draft = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "张鹏",
+        "万圣节-僵尸棒球",
+        "万圣节-僵尸棒球",
+        [{"size": "L", "quantity": 100}],
+        "",
+        waybill_no="YT-SUBMIT-001",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=5.5,
+    )
 
     report = submit_packing_draft(db_session, draft.id, worker.id)
 
@@ -52,7 +82,20 @@ def test_worker_can_delete_own_packing_draft(db_session):
     worker = User(username="worker_a", display_name="仓库A", password_hash="x", role="worker", is_active=True)
     db_session.add(worker)
     db_session.commit()
-    draft = create_packing_draft(db_session, worker.id, "2026-07-17", "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", [{"size": "L", "quantity": 100}], "")
+    draft = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "张鹏",
+        "万圣节-僵尸棒球",
+        "万圣节-僵尸棒球",
+        [{"size": "L", "quantity": 100}],
+        "",
+        waybill_no="YT-DELETE-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=3.2,
+    )
 
     delete_packing_draft(db_session, draft.id, worker.id)
 
@@ -75,6 +118,11 @@ def test_submit_packing_draft_keeps_internal_package_photos(db_session, tmp_path
         [{"size": "M", "quantity": 10}],
         "",
         [str(photo)],
+        "YT-PHOTO-001",
+        None,
+        "courier",
+        1,
+        1.2,
     )
 
     report = submit_packing_draft(db_session, draft.id, worker.id)
@@ -88,7 +136,20 @@ def test_delete_submitted_packing_draft_is_rejected(db_session):
     db_session.add(worker)
     db_session.commit()
     create_order_line(db_session, "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", "L", 400)
-    draft = create_packing_draft(db_session, worker.id, "2026-07-17", "张鹏", "万圣节-僵尸棒球", "万圣节-僵尸棒球", [{"size": "L", "quantity": 100}], "")
+    draft = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "张鹏",
+        "万圣节-僵尸棒球",
+        "万圣节-僵尸棒球",
+        [{"size": "L", "quantity": 100}],
+        "",
+        waybill_no="YT-SUBMITTED-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.8,
+    )
     submit_packing_draft(db_session, draft.id, worker.id)
 
     try:
@@ -105,8 +166,34 @@ def test_create_packing_draft_auto_assigns_package_no(db_session):
     db_session.add(worker)
     db_session.commit()
 
-    first = create_packing_draft(db_session, worker.id, "2026-08-04", "源兴发", "小红帽", "小红帽男", [{"size": "M", "quantity": 10}], "")
-    second = create_packing_draft(db_session, worker.id, "2026-08-04", "源兴发", "小红帽", "小红帽男", [{"size": "L", "quantity": 5}], "")
+    first = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-08-04",
+        "源兴发",
+        "小红帽",
+        "小红帽男",
+        [{"size": "M", "quantity": 10}],
+        "",
+        waybill_no="YT-PKG-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.0,
+    )
+    second = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-08-04",
+        "源兴发",
+        "小红帽",
+        "小红帽男",
+        [{"size": "L", "quantity": 5}],
+        "",
+        waybill_no="YT-PKG-002",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.1,
+    )
 
     assert first.package_no == "PKG-20260804-001"
     assert second.package_no == "PKG-20260804-002"
@@ -126,6 +213,10 @@ def test_packing_print_pages_render_for_admin_and_owner(db_session):
         "小红帽男",
         [{"size": "M", "quantity": 10}, {"size": "L", "quantity": 5}],
         "注意轻放",
+        waybill_no="YT-PRINT-001",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=4.3,
     )
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db_session
@@ -141,3 +232,109 @@ def test_packing_print_pages_render_for_admin_and_owner(db_session):
     page = client.get(f"/mobile/packing/{draft.id}/print")
     assert page.status_code == 200
     assert "PKG-20260804-001" in page.text
+
+
+def test_create_draft_rejects_future_date_without_persisting(db_session):
+    worker = User(username="worker_future", display_name="仓库A", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="发货日期不能晚于今天"):
+        create_packing_draft(
+            db_session,
+            worker.id,
+            "2099-01-01",
+            "源兴发",
+            "小红帽",
+            "小红帽男",
+            [{"size": "M", "quantity": 10}],
+            "",
+            waybill_no="YT-FUTURE-001",
+            shipping_method="courier",
+            package_count=1,
+            weight_kg=1.5,
+        )
+
+    assert db_session.query(PackingDraft).count() == 0
+
+
+def test_submit_two_drafts_reuses_one_waybill(db_session):
+    worker = User(username="worker_waybill", display_name="仓库A", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男", "M", 100)
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男", "L", 100)
+
+    first = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-08-04",
+        "源兴发",
+        "小红帽",
+        "小红帽男",
+        [{"size": "M", "quantity": 10}],
+        "",
+        waybill_no="YT-REUSE-001",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=10,
+    )
+    second = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-08-04",
+        "源兴发",
+        "小红帽",
+        "小红帽男",
+        [{"size": "L", "quantity": 8}],
+        "",
+        waybill_no="YT-REUSE-001",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=10,
+    )
+
+    first_report = submit_packing_draft(db_session, first.id, worker.id)
+    second_report = submit_packing_draft(db_session, second.id, worker.id)
+
+    assert first_report.waybill_id == second_report.waybill_id
+    assert db_session.query(WaybillRecord).count() == 1
+
+
+def test_waybill_conflict_does_not_create_partial_report(db_session):
+    admin = User(username="admin_conflict", display_name="老板", password_hash="x", role="admin", is_active=True)
+    worker = User(username="worker_conflict", display_name="仓库A", password_hash="x", role="worker", is_active=True)
+    db_session.add_all([admin, worker])
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男", "M", 100)
+    draft = create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-08-04",
+        "源兴发",
+        "小红帽",
+        "小红帽男",
+        [{"size": "M", "quantity": 12}],
+        "",
+        waybill_no="YT-CONFLICT-001",
+        shipping_method="courier",
+        package_count=3,
+        weight_kg=10,
+    )
+    create_waybill_record(
+        db_session,
+        admin.id,
+        "源兴发",
+        "2026-08-04",
+        "YT-CONFLICT-001",
+        courier="快递",
+        weight_kg=10,
+        package_count=2,
+    )
+
+    with pytest.raises(ValueError, match="包裹件数"):
+        submit_packing_draft(db_session, draft.id, worker.id)
+
+    db_session.refresh(draft)
+    assert draft.submitted_report_id is None
+    assert db_session.query(ShipmentReport).count() == 0

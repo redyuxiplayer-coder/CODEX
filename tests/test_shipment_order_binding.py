@@ -84,6 +84,10 @@ def test_packing_draft_keeps_selected_order_through_submission(db_session):
         style_name="",
         lines=[{"size": "M", "quantity": 15, "order_line_id": order.lines[1].id}],
         order_id=order.id,
+        waybill_no="YT-BIND-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.5,
     )
 
     report = submit_packing_draft(db_session, draft.id, worker.id)
@@ -106,6 +110,10 @@ def test_packing_draft_rejects_line_from_another_order(db_session):
             style_name="",
             lines=[{"size": "S", "quantity": 10, "order_line_id": other_order.lines[0].id}],
             order_id=selected_order.id,
+            waybill_no="YT-BIND-REJECT-001",
+            shipping_method="courier",
+            package_count=1,
+            weight_kg=2.6,
         )
 
 
@@ -203,6 +211,10 @@ def test_submit_and_draft_reject_archived_selected_order(db_session):
             style_name="",
             lines=[{"size": line.size, "quantity": 1, "order_line_id": line.id}],
             order_id=order.id,
+            waybill_no="YT-BIND-ARCHIVE-001",
+            shipping_method="courier",
+            package_count=1,
+            weight_kg=2.7,
         )
 
 
@@ -236,6 +248,10 @@ def test_mobile_posts_return_controlled_error_for_archived_order(db_session):
         style_name="",
         lines=[{"size": "S", "quantity": 1, "order_line_id": order.lines[0].id}],
         order_id=order.id,
+        waybill_no="YT-BIND-MOBILE-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.8,
     )
     db_session.add(SalesOrderArchive(order_id=order.id, archived_by=worker.id))
     db_session.commit()
