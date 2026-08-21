@@ -5,7 +5,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
-from app.models import ShipmentReport
+from app.models import ShipmentReport, WaybillRecord
 from app.services.aliases import canonical_item
 from app.services.orders import get_order_balances
 
@@ -265,6 +265,26 @@ def add_shipments_sheet(wb: Workbook, session: Session, title: str = "发货流�
     style_sheet(ws)
 
 
+def add_waybill_records_sheet(
+    wb: Workbook,
+    session: Session,
+    company_name: str | None = None,
+) -> None:
+    ws = wb.create_sheet("快递记录")
+    ws.append(["快递单号", "重量(kg)", "发货日期"])
+    query = session.query(WaybillRecord)
+    if company_name is not None:
+        query = query.filter(WaybillRecord.company_name == company_name)
+    records = query.order_by(WaybillRecord.ship_date, WaybillRecord.waybill_no).all()
+    for record in records:
+        ws.append([
+            record.waybill_no,
+            record.weight_kg or None,
+            record.ship_date,
+        ])
+    style_sheet(ws)
+
+
 def add_customer_detail_sheet(wb: Workbook, session: Session, company_name: str | None = None) -> None:
     ws = wb.create_sheet("发货明细")
     ws.append([
@@ -311,6 +331,7 @@ def export_total_workbook(session: Session, output_path: Path) -> Path:
     add_balance_sheet(wb, "订单发货明细", balances, shipment_details, waybill_numbers)
     add_shipments_sheet(wb, session)
     add_balance_sheet(wb, "未发货明细", [row for row in balances if row["remaining"] > 0], shipment_details, waybill_numbers)
+    add_waybill_records_sheet(wb, session)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
     return output_path
@@ -361,6 +382,7 @@ def export_company_workbook(session: Session, company_name: str, output_path: Pa
         waybill_numbers_by_balance_row(session, balances),
     )
     add_shipments_sheet(wb, session, company_name=company_name)
+    add_waybill_records_sheet(wb, session, company_name=company_name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
     return output_path
