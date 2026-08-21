@@ -38,7 +38,7 @@
 ## Commit
 
 - Implementation: `6a08f2a` `fix: bind uniquely matched historical shipments`
-- Report update: pending until this file is committed
+- Report evidence: `5609134` `docs: record task 4 repair evidence`
 
 ## Focus
 
