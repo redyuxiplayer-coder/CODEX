@@ -482,6 +482,43 @@ body.mobile {
   margin: 6px 0 0;
 }
 
+.order-filter-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.choice-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.choice-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #4b5563;
+}
+
+.choice-pill input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+}
+
+.shipping-subpanel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #eef0f2;
+  border-radius: 12px;
+  background: #fafbfc;
+}
+
 .mobile .goal-item {
   padding: 14px 2px;
 }

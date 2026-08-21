@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import authenticate, current_user, hash_password, require_admin, require_user
@@ -31,6 +32,7 @@ from app.models import (
     ShipmentPhoto,
     ShipmentReport,
     User,
+    WaybillRecord,
     WorkInfoLine,
     WorkInfoProposal,
 )
@@ -246,8 +248,60 @@ def active_order_companies(session: Session) -> list[str]:
     return sorted({row["company"] for row in worker_visible_balances(session) if row["company"]})
 
 
+def _reported_quantities_by_order_line(session: Session) -> dict[int, int]:
+    rows = (
+        session.query(ShipmentLine.order_line_id, func.sum(ShipmentLine.quantity))
+        .join(ShipmentReport, ShipmentReport.id == ShipmentLine.report_id)
+        .filter(
+            ShipmentLine.order_line_id.is_not(None),
+            ShipmentReport.status.in_(("pending_review", "auto_approved", "approved_after_edit")),
+        )
+        .group_by(ShipmentLine.order_line_id)
+        .all()
+    )
+    return {int(order_line_id): int(quantity or 0) for order_line_id, quantity in rows if order_line_id}
+
+
+def _formal_order_line_payloads(
+    order: SalesOrder,
+    balance_by_line_id: dict[int, dict],
+    reported_by_line_id: dict[int, int] | None = None,
+) -> list[dict]:
+    lines = []
+    reported_by_line_id = reported_by_line_id or {}
+    for line in sorted((row for row in order.lines if row.is_active), key=lambda row: size_sort_key(row.size)):
+        balance = balance_by_line_id.get(line.id, {})
+        ordered = int(balance.get("ordered", line.quantity))
+        approved_shipped = int(balance.get("shipped", 0))
+        shipped = max(approved_shipped, int(reported_by_line_id.get(line.id, 0)))
+        remaining = int(balance.get("remaining", ordered - approved_shipped)) - (shipped - approved_shipped)
+        over_shipped = max(int(balance.get("over_shipped", max(0, approved_shipped - ordered))), max(0, shipped - ordered))
+        if remaining < 0:
+            over_shipped = max(over_shipped, -remaining)
+            remaining = 0
+        lines.append(
+            {
+                "order_line_id": line.id,
+                "size": line.size,
+                "customer_sku": line.customer_sku or "",
+                "ordered": ordered,
+                "shipped": shipped,
+                "remaining": remaining,
+                "over_shipped": over_shipped,
+            }
+        )
+    return lines
+
+
+def _remaining_summary(lines: list[dict]) -> str:
+    parts = [f"{row['size']}{row['remaining']}" for row in lines if int(row.get("remaining") or 0) > 0]
+    return " / ".join(parts) or "已发完"
+
+
 def formal_order_options_payload(session: Session) -> list[dict]:
     hidden_order_ids = archived_order_ids(session)
+    balance_by_line_id = {int(row["order_id"]): row for row in worker_visible_balances(session) if row.get("order_id")}
+    reported_by_line_id = _reported_quantities_by_order_line(session)
     orders = (
         session.query(SalesOrder)
         .join(Company, Company.id == SalesOrder.company_id)
@@ -255,20 +309,25 @@ def formal_order_options_payload(session: Session) -> list[dict]:
         .order_by(SalesOrder.order_date.desc(), SalesOrder.id.desc())
         .all()
     )
-    return [
-        {
-            "id": order.id,
-            "system_order_no": order.system_order_no,
-            "customer_order_no": order.customer_order_no or "",
-            "company_name": order.company.name,
-            "product_name": order.product_name,
-            "style_name": order.style_name,
-            "color_name": order.color_name or "无颜色",
-            "order_date": order.order_date,
-        }
-        for order in orders
-        if order.id not in hidden_order_ids
-    ]
+    payload = []
+    for order in orders:
+        if order.id in hidden_order_ids:
+            continue
+        lines = _formal_order_line_payloads(order, balance_by_line_id, reported_by_line_id)
+        payload.append(
+            {
+                "id": order.id,
+                "system_order_no": order.system_order_no,
+                "customer_order_no": order.customer_order_no or "",
+                "company_name": order.company.name,
+                "product_name": order.product_name,
+                "style_name": order.style_name,
+                "color_name": order.color_name or "无颜色",
+                "order_date": order.order_date,
+                "remaining_summary": _remaining_summary(lines),
+            }
+        )
+    return payload
 
 
 def formal_order_lines_payload(session: Session, order_id: int) -> dict:
@@ -277,23 +336,8 @@ def formal_order_lines_payload(session: Session, order_id: int) -> dict:
         raise ValueError("所选订单不存在或已停用")
     if get_open_archive(session, order.id):
         raise ValueError("订单已归档，请先恢复")
-    balances = {row["order_id"]: row for row in worker_visible_balances(session, company_name=order.company.name)}
-    lines = []
-    for line in sorted((line for line in order.lines if line.is_active), key=lambda row: size_sort_key(row.size)):
-        balance = balances.get(line.id, {})
-        ordered = int(balance.get("ordered", line.quantity))
-        shipped = int(balance.get("shipped", 0))
-        lines.append(
-            {
-                "order_line_id": line.id,
-                "size": line.size,
-                "customer_sku": line.customer_sku or "",
-                "ordered": ordered,
-                "shipped": shipped,
-                "remaining": int(balance.get("remaining", ordered - shipped)),
-                "over_shipped": int(balance.get("over_shipped", max(0, shipped - ordered))),
-            }
-        )
+    balances = {int(row["order_id"]): row for row in worker_visible_balances(session, company_name=order.company.name) if row.get("order_id")}
+    lines = _formal_order_line_payloads(order, balances, _reported_quantities_by_order_line(session))
     return {
         "order": next(row for row in formal_order_options_payload(session) if row["id"] == order.id),
         "lines": lines,
@@ -332,6 +376,76 @@ def mobile_report_options_payload(session: Session, company: str = "", product: 
         for row in balances
     ]
     return {"sizes": sorted(hints.keys(), key=size_sort_key), "balances": hints, "lines": lines}
+
+
+def open_packing_drafts(session: Session, user_id: int) -> list[PackingDraft]:
+    return (
+        session.query(PackingDraft)
+        .filter(
+            PackingDraft.user_id == user_id,
+            PackingDraft.submitted_report_id.is_(None),
+        )
+        .order_by(PackingDraft.updated_at.desc(), PackingDraft.created_at.desc())
+        .all()
+    )
+
+
+def huolala_trip_options_payload(session: Session) -> list[dict]:
+    trips: dict[str, dict] = {}
+    draft_rows = (
+        session.query(PackingDraft)
+        .filter(
+            PackingDraft.shipping_method == "huolala",
+            PackingDraft.waybill_no != "",
+        )
+        .order_by(PackingDraft.pack_date.desc(), PackingDraft.id.desc())
+        .all()
+    )
+    for draft in draft_rows:
+        waybill_no = (draft.waybill_no or "").strip()
+        if not waybill_no or waybill_no in trips:
+            continue
+        trips[waybill_no] = {
+            "waybill_no": waybill_no,
+            "company_name": draft.company_name,
+            "ship_date": draft.pack_date,
+            "package_count": int(draft.package_count or 0),
+            "weight_kg": float(draft.weight_kg or 0),
+        }
+    records = (
+        session.query(WaybillRecord)
+        .filter(WaybillRecord.courier == "货拉拉")
+        .order_by(WaybillRecord.ship_date.desc(), WaybillRecord.id.desc())
+        .all()
+    )
+    for record in records:
+        waybill_no = (record.waybill_no or "").strip()
+        if not waybill_no or waybill_no in trips:
+            continue
+        trips[waybill_no] = {
+            "waybill_no": waybill_no,
+            "company_name": record.company_name,
+            "ship_date": record.ship_date,
+            "package_count": int(record.package_count or 0),
+            "weight_kg": float(record.weight_kg or 0),
+        }
+    return list(trips.values())
+
+
+def mobile_report_page_context(request: Request, user: User, session: Session, message: str = "") -> dict:
+    today = date.today().isoformat()
+    context = {
+        "request": request,
+        "user": user,
+        "today": today,
+        "drafts": open_packing_drafts(session, user.id),
+        "companies": active_order_companies(session),
+        "formal_orders": formal_order_options_payload(session),
+        "huolala_trips": huolala_trip_options_payload(session),
+    }
+    if message:
+        context["message"] = message
+    return context
 
 
 def ensure_default_admin() -> None:
@@ -1487,30 +1601,7 @@ def create_app() -> FastAPI:
         user = current_user(request, session)
         if not user:
             return RedirectResponse("/login", status_code=303)
-        today = date.today().isoformat()
-        from app.models import PackingDraft
-
-        drafts = (
-            session.query(PackingDraft)
-            .filter(
-                PackingDraft.user_id == user.id,
-                PackingDraft.pack_date == today,
-                PackingDraft.submitted_report_id.is_(None),
-            )
-            .order_by(PackingDraft.updated_at.desc(), PackingDraft.created_at.desc())
-            .all()
-        )
-        return templates.TemplateResponse(
-            "mobile/report.html",
-            {
-                "request": request,
-                "user": user,
-                "today": today,
-                "drafts": drafts,
-                "companies": active_order_companies(session),
-                "formal_orders": formal_order_options_payload(session),
-            },
-        )
+        return templates.TemplateResponse("mobile/report.html", mobile_report_page_context(request, user, session))
 
     @app.get("/mobile/report/options")
     def mobile_report_options(
@@ -1862,27 +1953,7 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         message = "已自动通过" if report.status == "auto_approved" else f"已提交待审核：{report.review_reason}"
-        from app.models import PackingDraft
-
-        today = date.today().isoformat()
-        drafts = (
-            session.query(PackingDraft)
-            .filter_by(user_id=user.id, pack_date=today)
-            .order_by(PackingDraft.updated_at.desc(), PackingDraft.created_at.desc())
-            .all()
-        )
-        return templates.TemplateResponse(
-            "mobile/report.html",
-            {
-                "request": request,
-                "user": user,
-                "companies": active_order_companies(session),
-                "formal_orders": formal_order_options_payload(session),
-                "drafts": drafts,
-                "today": today,
-                "message": message,
-            },
-        )
+        return templates.TemplateResponse("mobile/report.html", mobile_report_page_context(request, user, session, message))
 
     @app.get("/mobile/my-reports")
     def mobile_my_reports(request: Request, page: int = 1, partial: str = "", session: Session = Depends(get_session)):

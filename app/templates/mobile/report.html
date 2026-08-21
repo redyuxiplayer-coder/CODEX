@@ -22,18 +22,47 @@
       <p>{{ today }} · 先保存草稿，确认无误后提交老板审核</p>
     </div>
   </section>
+  {% if message %}
+  <p class="success">{{ message }}</p>
+  {% endif %}
 
   <section class="panel mobile-section">
     <h2>新增包货草稿</h2>
     <form method="post" action="/mobile/today/new" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="new">
       <label>发货日期</label>
       <input type="date" name="pack_date" value="{{ today }}" max="{{ today }}" required>
+      <div class="order-filter-grid">
+        <div>
+          <label for="order-company-filter">订单公司</label>
+          <select id="order-company-filter" data-order-company-filter>
+            <option value="">全部公司</option>
+          </select>
+        </div>
+        <div>
+          <label for="order-style-color-filter">款式 / 颜色</label>
+          <select id="order-style-color-filter" data-order-style-color-filter>
+            <option value="">全部款式/颜色</option>
+          </select>
+        </div>
+        <div>
+          <label for="order-search-filter">订单号搜索</label>
+          <input id="order-search-filter" data-order-search-filter placeholder="输入系统单号或客户单号">
+        </div>
+      </div>
+      <p class="hint">订单号｜下单日期｜颜色｜还差摘要</p>
       <label>订单号</label>
       <select name="order_id" id="formal-order" required>
         <option value="">请选择本次发货对应的订单</option>
         {% for order in formal_orders %}
-        <option value="{{ order.id }}">
-          {{ order.system_order_no }} · {{ order.company_name }} · {{ order.style_name }} · {{ order.color_name }} · {{ order.order_date }}
+        {% set style_color = order.style_name ~ "｜" ~ order.color_name %}
+        <option
+          value="{{ order.id }}"
+          data-company="{{ order.company_name }}"
+          data-style-color="{{ style_color }}"
+          data-search="{{ (order.system_order_no ~ ' ' ~ order.customer_order_no)|trim|lower }}"
+          data-remaining-summary="{{ order.remaining_summary }}"
+        >
+          {{ order.system_order_no }}｜{{ order.order_date or "未写日期" }}｜{{ order.color_name }}｜{{ order.remaining_summary }}
         </option>
         {% endfor %}
       </select>
@@ -46,6 +75,32 @@
         <option value="courier">快递</option>
         <option value="huolala">货拉拉</option>
       </select>
+      <div class="shipping-subpanel" data-huolala-panel hidden>
+        <div class="choice-row">
+          <label class="choice-pill">
+            <input type="radio" name="trip_mode_new" value="new" data-trip-mode checked>
+            <span>新建车次</span>
+          </label>
+          <label class="choice-pill">
+            <input type="radio" name="trip_mode_new" value="existing" data-trip-mode>
+            <span>已有车次</span>
+          </label>
+        </div>
+        <select data-existing-trip>
+          <option value="">请选择已有货拉拉车次</option>
+          {% for trip in huolala_trips %}
+          <option
+            value="{{ trip.waybill_no }}"
+            data-company="{{ trip.company_name }}"
+            data-pack-date="{{ trip.ship_date }}"
+            data-package-count="{{ trip.package_count }}"
+            data-weight-kg="{{ '%.2f'|format(trip.weight_kg) }}"
+          >
+            {{ trip.waybill_no }}｜{{ trip.company_name }}｜{{ trip.ship_date }}｜{{ trip.package_count }}件｜{{ '%.2f'|format(trip.weight_kg) }}kg
+          </option>
+          {% endfor %}
+        </select>
+      </div>
       <label>运单号</label>
       <input name="waybill_no" placeholder="例如 YT1234567890" data-waybill-input>
       <p class="hint" data-waybill-hint>快递必须填写真实运单号；货拉拉可留空自动生成车次号。</p>
@@ -66,8 +121,16 @@
       {% for d in drafts %}
         <article class="balance-item need-card">
           <div class="item-title">{% if d.order %}{{ d.order.system_order_no }} · {% endif %}{{ d.company_name }} · {{ d.product_name }}</div>
-          <div class="item-sub">{{ d.style_name }}{% if d.order and d.order.color_name %} · {{ d.order.color_name }}{% endif %} / 未上报{% if d.package_no %} / {{ d.package_no }}{% endif %}</div>
-          <form method="post" action="/mobile/today/{{ d.id }}/update" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="draft-{{ d.id }}">
+          <div class="item-sub">{{ d.pack_date }} / {{ d.style_name }}{% if d.order and d.order.color_name %} · {{ d.order.color_name }}{% endif %} / 未上报{% if d.package_no %} / {{ d.package_no }}{% endif %}</div>
+          <form
+            method="post"
+            action="/mobile/today/{{ d.id }}/update"
+            enctype="multipart/form-data"
+            class="grid-form report-draft-form"
+            data-autosave-key="draft-{{ d.id }}"
+            data-company-name="{{ d.company_name }}"
+            data-current-waybill="{{ d.waybill_no or '' }}"
+          >
             <label>发货日期</label>
             <input type="date" name="pack_date" value="{{ d.pack_date }}" max="{{ today }}" required>
             {% for l in d.lines %}
@@ -86,6 +149,45 @@
               <option value="courier" {% if d.shipping_method == "courier" %}selected{% endif %}>快递</option>
               <option value="huolala" {% if d.shipping_method == "huolala" %}selected{% endif %}>货拉拉</option>
             </select>
+            <div class="shipping-subpanel" data-huolala-panel hidden>
+              <div class="choice-row">
+                <label class="choice-pill">
+                  <input
+                    type="radio"
+                    name="trip_mode_{{ d.id }}"
+                    value="new"
+                    data-trip-mode
+                    {% if d.shipping_method != "huolala" or not d.waybill_no %}checked{% endif %}
+                  >
+                  <span>新建车次</span>
+                </label>
+                <label class="choice-pill">
+                  <input
+                    type="radio"
+                    name="trip_mode_{{ d.id }}"
+                    value="existing"
+                    data-trip-mode
+                    {% if d.shipping_method == "huolala" and d.waybill_no %}checked{% endif %}
+                  >
+                  <span>已有车次</span>
+                </label>
+              </div>
+              <select data-existing-trip>
+                <option value="">请选择已有货拉拉车次</option>
+                {% for trip in huolala_trips %}
+                <option
+                  value="{{ trip.waybill_no }}"
+                  data-company="{{ trip.company_name }}"
+                  data-pack-date="{{ trip.ship_date }}"
+                  data-package-count="{{ trip.package_count }}"
+                  data-weight-kg="{{ '%.2f'|format(trip.weight_kg) }}"
+                  {% if trip.waybill_no == (d.waybill_no or '') %}selected{% endif %}
+                >
+                  {{ trip.waybill_no }}｜{{ trip.company_name }}｜{{ trip.ship_date }}｜{{ trip.package_count }}件｜{{ '%.2f'|format(trip.weight_kg) }}kg
+                </option>
+                {% endfor %}
+              </select>
+            </div>
             <label>运单号</label>
             <input name="waybill_no" value="{{ d.waybill_no or '' }}" placeholder="例如 YT1234567890" data-waybill-input>
             <p class="hint" data-waybill-hint>快递必须填写真实运单号；货拉拉可留空自动生成车次号。</p>

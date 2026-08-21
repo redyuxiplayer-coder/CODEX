@@ -95,8 +95,13 @@ function renderOrderLineRows(lines) {
   }
 }
 
+function getNewReportForm() {
+  return document.querySelector('.report-draft-form[data-autosave-key="new"]');
+}
+
 async function updateFormalOrderLines() {
-  const select = document.getElementById("formal-order");
+  const form = getNewReportForm();
+  const select = form && form.querySelector('[name="order_id"]');
   const detail = document.getElementById("formal-order-detail");
   const box = document.getElementById("size-box");
   if (!select || !select.value) {
@@ -108,15 +113,83 @@ async function updateFormalOrderLines() {
   const result = await fetchReportOptions({ order_id: select.value });
   const order = result.order || {};
   if (detail) {
-    detail.textContent = `${order.company_name || ""} · ${order.product_name || ""} · ${order.style_name || ""} · ${order.color_name || "无颜色"} · 下单 ${order.order_date || "未填写"}`;
+    detail.textContent =
+      `${order.company_name || ""} · ${order.product_name || ""} · ${order.style_name || ""} · `
+      + `${order.color_name || "无颜色"} · 下单 ${order.order_date || "未填写"} · 还差 ${order.remaining_summary || "已发完"}`;
   }
   renderOrderLineRows(result.lines || []);
 }
 
 function setupFormalOrderSelector() {
-  const select = document.getElementById("formal-order");
-  if (!select) return;
-  select.addEventListener("change", () => updateFormalOrderLines());
+  const form = getNewReportForm();
+  const select = form && form.querySelector('[name="order_id"]');
+  const companyFilter = form && form.querySelector("[data-order-company-filter]");
+  const styleColorFilter = form && form.querySelector("[data-order-style-color-filter]");
+  const searchInput = form && form.querySelector("[data-order-search-filter]");
+  if (!form || !select || !companyFilter || !styleColorFilter || !searchInput) return;
+
+  const orderOptions = Array.from(select.options).filter((option) => option.value);
+
+  const updateStyleColorChoices = () => {
+    const company = companyFilter.value;
+    const values = Array.from(new Set(
+      orderOptions
+        .filter((option) => !company || option.dataset.company === company)
+        .map((option) => option.dataset.styleColor || "")
+        .filter(Boolean),
+    ));
+    const current = styleColorFilter.value;
+    fillSelect(styleColorFilter, values, "全部款式/颜色");
+    if (current && values.includes(current)) {
+      styleColorFilter.value = current;
+    }
+  };
+
+  const filterOptions = () => {
+    const company = companyFilter.value;
+    const styleColor = styleColorFilter.value;
+    const query = searchInput.value.trim().toLowerCase();
+    orderOptions.forEach((option) => {
+      const visible = (!company || option.dataset.company === company)
+        && (!styleColor || option.dataset.styleColor === styleColor)
+        && (!query || option.dataset.search.toLowerCase().includes(query.toLowerCase()));
+      option.hidden = !visible;
+    });
+    const selected = select.selectedOptions[0];
+    if (selected && selected.value && selected.hidden) {
+      select.value = "";
+      updateFormalOrderLines();
+    }
+  };
+
+  form._formalOrderFilters = {
+    updateStyleColorChoices,
+    filterOptions,
+  };
+
+  fillSelect(companyFilter, Array.from(new Set(orderOptions.map((option) => option.dataset.company || "").filter(Boolean))), "全部公司");
+  updateStyleColorChoices();
+  filterOptions();
+
+  companyFilter.addEventListener("change", () => {
+    updateStyleColorChoices();
+    filterOptions();
+    saveReportDraft(form);
+    if (form._syncReportLogistics) form._syncReportLogistics();
+  });
+  styleColorFilter.addEventListener("change", () => {
+    filterOptions();
+    saveReportDraft(form);
+  });
+  searchInput.addEventListener("input", () => {
+    filterOptions();
+    saveReportDraft(form);
+  });
+  select.addEventListener("change", async () => {
+    await updateFormalOrderLines();
+    if (form._syncReportLogistics) form._syncReportLogistics();
+    saveReportDraft(form);
+  });
   renderOrderLineRows([]);
 }
 
@@ -186,16 +259,25 @@ async function updateSizes() {
 }
 
 function getReportDraftKey(form) {
-  const dateInput = form.querySelector('[name="pack_date"]');
-  return `zy-report-draft:${dateInput ? dateInput.value : "today"}:${form.dataset.autosaveKey || "new"}`;
+  return `zy-report-draft:${form.dataset.autosaveKey || "new"}`;
 }
 
 function collectReportDraft(form) {
   return {
+    packDate: form.querySelector('[name="pack_date"]')?.value || "",
     orderId: form.querySelector('[name="order_id"]')?.value || "",
+    orderCompanyFilter: form.querySelector("[data-order-company-filter]")?.value || "",
+    orderStyleColorFilter: form.querySelector("[data-order-style-color-filter]")?.value || "",
+    orderSearchFilter: form.querySelector("[data-order-search-filter]")?.value || "",
     company: form.querySelector('[name="company_name"]')?.value || "",
     product: form.querySelector('[name="product_name"]')?.value || "",
     style: form.querySelector('[name="style_name"]')?.value || "",
+    shippingMethod: form.querySelector('[name="shipping_method"]')?.value || "",
+    tripMode: form.querySelector("[data-trip-mode]:checked")?.value || "new",
+    existingTrip: form.querySelector("[data-existing-trip]")?.value || "",
+    waybillNo: form.querySelector('[name="waybill_no"]')?.value || "",
+    packageCount: form.querySelector('[name="package_count"]')?.value || "",
+    weightKg: form.querySelector('[name="weight_kg"]')?.value || "",
     note: form.querySelector('[name="note"]')?.value || "",
     quantities: Array.from(form.querySelectorAll('[name="quantities"]')).map((input) => input.value),
   };
@@ -218,6 +300,30 @@ async function restoreReportDraft(form) {
   }
   if (!draft) return;
 
+  const packDateInput = form.querySelector('[name="pack_date"]');
+  if (packDateInput && draft.packDate) {
+    packDateInput.value = draft.packDate;
+  }
+
+  const companyFilter = form.querySelector("[data-order-company-filter]");
+  const styleColorFilter = form.querySelector("[data-order-style-color-filter]");
+  const searchFilter = form.querySelector("[data-order-search-filter]");
+  if (companyFilter && draft.orderCompanyFilter) {
+    companyFilter.value = draft.orderCompanyFilter;
+  }
+  if (searchFilter && draft.orderSearchFilter) {
+    searchFilter.value = draft.orderSearchFilter;
+  }
+  if (form._formalOrderFilters) {
+    form._formalOrderFilters.updateStyleColorChoices();
+  }
+  if (styleColorFilter && draft.orderStyleColorFilter) {
+    styleColorFilter.value = draft.orderStyleColorFilter;
+  }
+  if (form._formalOrderFilters) {
+    form._formalOrderFilters.filterOptions();
+  }
+
   const formalOrder = form.querySelector('[name="order_id"]');
   if (formalOrder && draft.orderId) {
     formalOrder.value = draft.orderId;
@@ -238,11 +344,38 @@ async function restoreReportDraft(form) {
   if (style && draft.style) {
     await updateStyles(draft.style);
   }
+  const shippingMethod = form.querySelector('[name="shipping_method"]');
+  if (shippingMethod && draft.shippingMethod) {
+    shippingMethod.value = draft.shippingMethod;
+  }
+  const tripMode = draft.tripMode || "";
+  if (tripMode) {
+    form.querySelectorAll("[data-trip-mode]").forEach((input) => {
+      input.checked = input.value === tripMode;
+    });
+  }
+  const existingTrip = form.querySelector("[data-existing-trip]");
+  if (existingTrip && draft.existingTrip) {
+    existingTrip.value = draft.existingTrip;
+  }
+  const waybillNo = form.querySelector('[name="waybill_no"]');
+  if (waybillNo && draft.waybillNo !== undefined) {
+    waybillNo.value = draft.waybillNo || "";
+  }
+  const packageCount = form.querySelector('[name="package_count"]');
+  if (packageCount && draft.packageCount !== undefined) {
+    packageCount.value = draft.packageCount || "";
+  }
+  const weightKg = form.querySelector('[name="weight_kg"]');
+  if (weightKg && draft.weightKg !== undefined) {
+    weightKg.value = draft.weightKg || "";
+  }
   const note = form.querySelector('[name="note"]');
   if (note) note.value = draft.note || "";
   Array.from(form.querySelectorAll('[name="quantities"]')).forEach((input, index) => {
     if (draft.quantities && draft.quantities[index] !== undefined) input.value = draft.quantities[index];
   });
+  form.dataset.lastLogisticsKey = "";
 }
 
 function updateSubmitStatus(form, message) {
@@ -366,8 +499,13 @@ async function waitForPhotoCompression(form) {
 
 function setupReportDraftForms() {
   document.querySelectorAll(".report-draft-form").forEach((form) => {
-    restoreReportDraft(form);
+    if (form._currentWaybill) {
+      form.dataset.currentWaybill = form._currentWaybill;
+    }
     setupPhotoLimit(form);
+    restoreReportDraft(form).then(() => {
+      if (form._syncReportLogistics) form._syncReportLogistics();
+    });
     form.addEventListener("input", () => saveReportDraft(form));
     form.addEventListener("change", () => saveReportDraft(form));
     form.addEventListener("submit", async (event) => {
@@ -382,23 +520,145 @@ function setupReportDraftForms() {
   });
 }
 
-function setupShippingMethodFields() {
+function setupReportLogisticsForms() {
   document.querySelectorAll(".report-draft-form").forEach((form) => {
     const methodSelect = form.querySelector('[name="shipping_method"]');
     const waybillInput = form.querySelector("[data-waybill-input]");
     const waybillHint = form.querySelector("[data-waybill-hint]");
-    if (!methodSelect || !waybillInput) return;
-    const sync = () => {
-      const isCourier = methodSelect.value === "courier";
-      waybillInput.required = isCourier;
-      waybillInput.placeholder = isCourier ? "例如 YT1234567890" : "留空会自动生成货拉拉车次号";
-      if (waybillHint) {
-        waybillHint.textContent = isCourier
-          ? "快递必须填写真实运单号。"
-          : "货拉拉可留空自动生成车次号；若已有车次可直接填写原编号。";
+    const packDateInput = form.querySelector('[name="pack_date"]');
+    const packageCountInput = form.querySelector('[name="package_count"]');
+    const weightInput = form.querySelector('[name="weight_kg"]');
+    const huolalaPanel = form.querySelector("[data-huolala-panel]");
+    const existingTripSelect = form.querySelector("[data-existing-trip]");
+    const tripModeInputs = Array.from(form.querySelectorAll("[data-trip-mode]"));
+    if (!methodSelect || !waybillInput || !packDateInput || !packageCountInput || !weightInput) return;
+
+    const getCurrentCompany = () => {
+      const selectedOrder = form.querySelector('[name="order_id"] option:checked');
+      if (selectedOrder && selectedOrder.dataset.company) return selectedOrder.dataset.company;
+      return form.dataset.companyName || form.querySelector('[name="company_name"]')?.value || "";
+    };
+
+    const getTripMode = () => form.querySelector("[data-trip-mode]:checked")?.value || "new";
+
+    const clearIncompatibleLogistics = () => {
+      methodSelect.value = "";
+      if (existingTripSelect) existingTripSelect.value = "";
+      tripModeInputs.forEach((input) => {
+        input.checked = input.value === "new";
+      });
+      waybillInput.value = "";
+      packageCountInput.value = "";
+      weightInput.value = "";
+    };
+
+    const hasLogisticsValues = () => (
+      !!methodSelect.value
+      || !!waybillInput.value
+      || !!packageCountInput.value
+      || !!weightInput.value
+      || !!(existingTripSelect && existingTripSelect.value)
+    );
+
+    const filterExistingTrips = () => {
+      if (!existingTripSelect) return;
+      const company = getCurrentCompany();
+      const packDate = packDateInput.value;
+      let selectedVisible = !existingTripSelect.value;
+      Array.from(existingTripSelect.options).forEach((option, index) => {
+        if (index === 0) return;
+        const visible = (!company || option.dataset.company === company)
+          && (!packDate || option.dataset.packDate === packDate);
+        option.hidden = !visible;
+        if (visible && option.value === existingTripSelect.value) {
+          selectedVisible = true;
+        }
+      });
+      if (!selectedVisible) {
+        existingTripSelect.value = "";
       }
     };
+
+    const sync = () => {
+      const currentKey = `${getCurrentCompany()}|${packDateInput.value}`;
+      if (form.dataset.lastLogisticsKey && form.dataset.lastLogisticsKey !== currentKey && hasLogisticsValues()) {
+        clearIncompatibleLogistics();
+      }
+      form.dataset.lastLogisticsKey = currentKey;
+      filterExistingTrips();
+
+      const isCourier = methodSelect.value === "courier";
+      const isHuolala = methodSelect.value === "huolala";
+      const useExistingTrip = isHuolala && getTripMode() === "existing";
+      const selectedTrip = existingTripSelect && existingTripSelect.selectedOptions[0] && existingTripSelect.value
+        ? existingTripSelect.selectedOptions[0]
+        : null;
+
+      if (huolalaPanel) huolalaPanel.hidden = !isHuolala;
+      tripModeInputs.forEach((input) => {
+        input.disabled = !isHuolala;
+      });
+      if (existingTripSelect) {
+        existingTripSelect.disabled = !isHuolala;
+        existingTripSelect.required = useExistingTrip;
+      }
+
+      waybillInput.required = isCourier;
+      if (isCourier) {
+        waybillInput.readOnly = false;
+        packageCountInput.readOnly = false;
+        weightInput.readOnly = false;
+        waybillInput.placeholder = "例如 YT1234567890";
+        if (waybillHint) waybillHint.textContent = "快递必须填写真实运单号。";
+        return;
+      }
+
+      if (isHuolala && useExistingTrip && selectedTrip) {
+        waybillInput.value = selectedTrip.value;
+        packageCountInput.value = selectedTrip.dataset.packageCount || "";
+        weightInput.value = selectedTrip.dataset.weightKg || "";
+        waybillInput.readOnly = true;
+        packageCountInput.readOnly = true;
+        weightInput.readOnly = true;
+        if (waybillHint) waybillHint.textContent = "已有货拉拉车次会自动带出并锁定件数和重量。";
+        return;
+      }
+
+      waybillInput.readOnly = false;
+      packageCountInput.readOnly = false;
+      weightInput.readOnly = false;
+      waybillInput.placeholder = isHuolala ? "留空会自动生成货拉拉车次号" : "例如 YT1234567890";
+      if (useExistingTrip) {
+        waybillInput.value = "";
+        packageCountInput.value = "";
+        weightInput.value = "";
+      }
+      if (waybillHint) {
+        waybillHint.textContent = isHuolala
+          ? "货拉拉可新建车次，或选择已有车次复用。"
+          : "请先选择发货方式。";
+      }
+    };
+
+    const currentWaybill = form.dataset.currentWaybill || "";
+    if (currentWaybill && existingTripSelect) {
+      form._currentWaybill = currentWaybill;
+      const matchingOption = Array.from(existingTripSelect.options).find((option) => option.value === currentWaybill);
+      if (matchingOption) {
+        existingTripSelect.value = currentWaybill;
+      }
+    }
+
+    form._syncReportLogistics = sync;
+
     methodSelect.addEventListener("change", sync);
+    packDateInput.addEventListener("change", sync);
+    const formalOrder = form.querySelector('[name="order_id"]');
+    if (formalOrder) {
+      formalOrder.addEventListener("change", sync);
+    }
+    tripModeInputs.forEach((input) => input.addEventListener("change", sync));
+    if (existingTripSelect) existingTripSelect.addEventListener("change", sync);
     sync();
   });
 }
@@ -568,8 +828,8 @@ document.addEventListener("DOMContentLoaded", () => {
     renderSizeRows([], {});
   }
   setupFormalOrderSelector();
+  setupReportLogisticsForms();
   setupReportDraftForms();
-  setupShippingMethodFields();
   setupQuantityPlusButtons();
   setupBarcodeScan();
   setupPhotoLightbox();

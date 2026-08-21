@@ -1281,6 +1281,114 @@ def test_mobile_report_page_uses_lazy_order_balance_hint_data():
     assert "window.ORDER_BALANCES" not in response.text
 
 
+def test_mobile_report_shows_editable_required_date_and_all_open_drafts(db_session):
+    from datetime import date, timedelta
+
+    from app.db import get_session
+    from app.models import User
+    from app.services.packing_drafts import create_packing_draft
+
+    worker = User(username="route_old_draft_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    old_date = (date.today() - timedelta(days=2)).isoformat()
+    old_draft = create_packing_draft(
+        db_session,
+        worker.id,
+        old_date,
+        "源兴发",
+        "小红帽",
+        "小红帽男款",
+        [{"size": "L", "quantity": 15}],
+        "前天草稿",
+        waybill_no="YT-OLD-DRAFT-001",
+        shipping_method="courier",
+        package_count=1,
+        weight_kg=2.5,
+    )
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/report")
+
+    assert page.status_code == 200
+    assert 'name="pack_date"' in page.text
+    assert 'type="date"' in page.text
+    assert "required" in page.text
+    assert f'max="{date.today().isoformat()}"' in page.text
+    assert old_draft.package_no in page.text
+    app.dependency_overrides.clear()
+
+
+def test_mobile_report_renders_order_filters_and_existing_huolala_choices(db_session):
+    from app.db import get_session
+    from app.models import Company, Spu, User
+    from app.services.packing_drafts import create_packing_draft
+    from app.services.sales_orders import create_sales_order
+
+    worker = User(username="route_filter_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    other = User(username="route_filter_other", display_name="同事", password_hash="x", role="worker", is_active=True)
+    company = Company(name="源兴发", code="YXF", next_order_sequence=1)
+    spu = Spu(code="LALD", product_name="啦啦队", style_name="亮片啦啦队")
+    db_session.add_all([worker, other, company, spu])
+    db_session.commit()
+    create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "红色",
+        "RED",
+        "2026-08-09",
+        [{"size": "L", "quantity": 100}, {"size": "XL", "quantity": 70}],
+    )
+    create_packing_draft(
+        db_session,
+        other.id,
+        "2026-08-09",
+        "源兴发",
+        "啦啦队",
+        "亮片啦啦队",
+        [{"size": "L", "quantity": 2}],
+        "共享车次",
+        waybill_no="HL-SHARED-001",
+        shipping_method="huolala",
+        package_count=3,
+        weight_kg=12.5,
+    )
+    create_packing_draft(
+        db_session,
+        other.id,
+        "2026-08-10",
+        "别家公司",
+        "啦啦队",
+        "亮片啦啦队",
+        [{"size": "L", "quantity": 2}],
+        "不应复用",
+        waybill_no="HL-OTHER-001",
+        shipping_method="huolala",
+        package_count=4,
+        weight_kg=13.5,
+    )
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/report")
+
+    assert page.status_code == 200
+    assert 'id="order-company-filter"' in page.text
+    assert 'id="order-style-color-filter"' in page.text
+    assert 'id="order-search-filter"' in page.text
+    assert "订单号｜下单日期｜颜色｜还差摘要" in page.text
+    assert "HL-SHARED-001" in page.text
+    assert "新建车次" in page.text
+    assert "已有车次" in page.text
+    app.dependency_overrides.clear()
+
+
 def test_mobile_report_form_renders_basic_logistics_fields(db_session):
     from app.db import get_session
     from app.models import User
@@ -1301,6 +1409,50 @@ def test_mobile_report_form_renders_basic_logistics_fields(db_session):
     assert 'name="waybill_no"' in page.text
     assert 'name="waybill_no" placeholder="例如 YT1234567890" required' not in page.text
     assert "货拉拉可留空自动生成车次号" in page.text
+    app.dependency_overrides.clear()
+
+
+def test_mobile_new_requires_complete_logistics(db_session):
+    from app.db import get_session
+    from app.models import Company, Spu, User
+    from app.services.sales_orders import create_sales_order
+
+    worker = User(username="route_requires_logistics_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    company = Company(name="源兴发", code="YXF", next_order_sequence=1)
+    spu = Spu(code="REQL", product_name="裁判", style_name="圆领裁判")
+    db_session.add_all([worker, company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "红色",
+        "RED",
+        "2026-08-09",
+        [{"size": "L", "quantity": 100}],
+    )
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app, raise_server_exceptions=False)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        "/mobile/today/new",
+        data={
+            "pack_date": "2026-08-09",
+            "order_id": str(order.id),
+            "order_line_ids": [str(order.lines[0].id)],
+            "sizes": ["L"],
+            "quantities": ["20"],
+            "shipping_method": "",
+            "waybill_no": "",
+            "package_count": "2",
+            "weight_kg": "9.5",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请选择发货方式"
     app.dependency_overrides.clear()
 
 

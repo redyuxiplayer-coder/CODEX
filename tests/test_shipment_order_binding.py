@@ -132,6 +132,28 @@ def test_mobile_form_lists_order_number_date_color_and_only_its_sizes(db_session
     assert {row["size"] for row in payload["lines"]} == {"S", "M"}
 
 
+def test_order_option_contains_remaining_summary(db_session):
+    worker, order, _ = _formal_orders(db_session)
+
+    submit_shipment_report(
+        db_session,
+        user_id=worker.id,
+        ship_date="2026-08-10",
+        company_name="",
+        product_name="",
+        style_name="",
+        lines=[
+            {"size": "S", "quantity": 2, "order_line_id": order.lines[0].id},
+            {"size": "M", "quantity": 17, "order_line_id": order.lines[1].id},
+        ],
+        order_id=order.id,
+    )
+
+    option = next(row for row in formal_order_options_payload(db_session) if row["id"] == order.id)
+
+    assert option["remaining_summary"] == "S98 / M63"
+
+
 def test_worker_mobile_form_submits_one_selected_order(db_session):
     worker, order, _ = _formal_orders(db_session)
     app = create_app()
