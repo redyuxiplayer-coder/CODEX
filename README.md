@@ -105,10 +105,11 @@ python scripts/repair_unique_shipment_order_bindings.py --database /path/to/db.s
 ```
 
 - `--preview` 只读输出 JSON，不写库
-- `--apply` 会重新扫描并分类“执行当下”的数据库状态，不会读取 `preview` JSON 回灌执行；生产执行前应先比对 `preview` 与最终 `audit` 的统计和明细
+- `--apply` 会重新扫描并分类“执行当下”的数据库状态，不会读取 `preview` JSON 回灌执行
 - `--apply` 只会补绑它本次重新分类出的 `unique` 记录，`ambiguous` 和 `unmatched` 会保持不变
 - 非 SQLite 数据库执行 `--apply` 前，必须先完成备份，并显式加 `--confirm-production-backup`
 - 生产执行前至少备份 PostgreSQL、`data/uploads/`、`data/waybills/`
+- 推荐时序：先人工检查 `preview`；确认可执行且已完成备份后再运行 `--apply`；`--apply` 完成后再把 `audit` 与 `preview` 比较，核对 `unique` 数量/明细，以及 `ambiguous` / `unmatched` 是否符合预期
 
 生产 PostgreSQL 完整示例：
 
@@ -118,7 +119,7 @@ python scripts/repair_unique_shipment_order_bindings.py --database-url-env SUPAB
 ```
 
 - `SUPABASE_DATABASE_URL` 是历史遗留变量名，但在线上实际指向腾讯云机器上的 PostgreSQL
-- 生产 `--apply` 前先完成备份，再执行，并核对 `preview` 与 `audit` 是否符合预期
+- 生产流程同样遵循：先人工检查 `preview`，确认并备份后执行 `--apply`，最后再用 `audit` 对照 `preview` 复核 `unique` / `ambiguous` / `unmatched`
 
 ## 数据备份
 

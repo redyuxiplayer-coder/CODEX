@@ -68,7 +68,7 @@ Result:
 
 - `scripts/repair_unique_shipment_order_bindings.py` 使用 mutually exclusive CLI：`--preview` 与 `--apply` 不能同时传。
 - `main(...)` 中 `--apply` 强制要求 `--audit`，`--preview` 路径只调用 `classify_unbound_lines(...)`，不写库。
-- `main(...)` 中 `--apply` 调用 `apply_unique_bindings(session)` 前会重新对当前数据库执行 `classify_unbound_lines(session)`；它不会读取已有 `preview` JSON 文件作为输入。
+- `apply_unique_bindings(session)` 内部会调用 `classify_unbound_lines(session)`，重新按当前数据库状态分类；它不会读取已有 `preview` JSON 文件作为输入。
 - 非 SQLite `--apply` 会在 `open_session(...)` 之前强制检查 `--confirm-production-backup`。
 - `tests/test_repair_unique_shipment_bindings.py` 覆盖了：
   - preview/apply 互斥
@@ -111,6 +111,7 @@ After cleanup:
 
 - 把“不得晚于 `2026-08-21`”修正为“不得晚于服务器当天”，并把 `2026-08-21` 明确为本次本地验证日期。
 - 在 README 中明确：`--apply` 会重新分类当前数据库，不读取 `preview` JSON；执行前后要比较 `preview` 与 `audit`。
+- 在 README 中把执行时序写清楚：先人工检查 `preview`；确认并备份后再 `--apply`；`--apply` 后再用 `audit` 对照 `preview` 核对 `unique` 数量/明细与 `ambiguous` / `unmatched`。
 - 在 README 中补充了本地 SQLite 示例和生产 PostgreSQL 完整示例，并强调 `SUPABASE_DATABASE_URL` 变量名虽沿用历史命名，但在线上实际指向腾讯云 PostgreSQL，且 `--apply` 前必须先备份。
 - 在 README 和报告中把物流必填规则改成按渠道描述：`courier` 真实运单号必填；`huolala` 新建可留空自动生成、复用由系统带出；件数和重量始终必填。
 - 复核文档内未引入任何真实连接串、账号、密码或其他敏感值。
