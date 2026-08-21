@@ -53,3 +53,10 @@ def test_sales_order_pages_include_archive_controls():
     assert "restoreSalesOrder" in detail_source
     assert "archiveSalesOrder" in api_source
     assert "restoreSalesOrder" in api_source
+
+
+def test_shipments_vue_does_not_condition_order_identity_on_multiple_orders():
+    source = (WEB_SRC / "views" / "Shipments.vue").read_text(encoding="utf-8")
+
+    assert "row.has_multiple_orders && l.system_order_no" not in source
+    assert "{{ l.order_label }}" in source

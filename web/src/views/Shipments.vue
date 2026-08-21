@@ -80,9 +80,8 @@ async function uploadPhotos(row, event) {
         </el-table-column>
         <el-table-column label="尺码数量/客户SKU" min-width="170">
           <template #default="{ row }">
-            <div v-for="l in row.lines" :key="`${l.size}-${l.system_order_no}`">
+            <div v-for="l in row.lines" :key="l.id || `${l.size}-${l.order_line_id || 'unbound'}`">
               {{ l.size }} {{ l.quantity }}<span class="muted" v-if="l.customer_sku"> · {{ l.customer_sku }}</span>
-              <div class="muted" v-if="row.has_multiple_orders && l.system_order_no">{{ l.system_order_no }} · 下单 {{ l.order_date }}</div>
             </div>
           </template>
         </el-table-column>
