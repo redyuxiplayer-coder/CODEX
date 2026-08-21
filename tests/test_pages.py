@@ -768,7 +768,7 @@ def test_mobile_today_packed_page_renders():
     assert response.status_code == 200
     assert "发货上报" in response.text
     assert "保存草稿" in response.text
-    assert "确认无误，提交上报" in response.text or "今天还没有包货草稿" in response.text
+    assert "确认无误，提交上报" in response.text or "还没有未提交包货草稿" in response.text
 
 
 def test_mobile_report_page_does_not_upload_photos():
@@ -1325,6 +1325,7 @@ def test_mobile_report_shows_editable_required_date_and_all_open_drafts(db_sessi
 def test_mobile_report_renders_order_filters_and_existing_huolala_choices(db_session):
     from app.db import get_session
     from app.models import Company, Spu, User
+    from app.services.logistics import create_waybill_record
     from app.services.packing_drafts import create_packing_draft
     from app.services.sales_orders import create_sales_order
 
@@ -1371,21 +1372,102 @@ def test_mobile_report_renders_order_filters_and_existing_huolala_choices(db_ses
         package_count=4,
         weight_kg=13.5,
     )
+    create_waybill_record(
+        db_session,
+        other.id,
+        "源兴发",
+        "2026-08-09",
+        "HL-REC-001",
+        courier="货拉拉",
+        weight_kg=12.8,
+        package_count=5,
+    )
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db_session
     client = TestClient(app)
     client.cookies.set("zy_user_id", str(worker.id))
 
     page = client.get("/mobile/report")
+    trips = client.get("/mobile/report/huolala-trips?company=源兴发&ship_date=2026-08-09")
 
     assert page.status_code == 200
     assert 'id="order-company-filter"' in page.text
     assert 'id="order-style-color-filter"' in page.text
     assert 'id="order-search-filter"' in page.text
     assert "订单号｜下单日期｜颜色｜还差摘要" in page.text
-    assert "HL-SHARED-001" in page.text
+    assert "HL-SHARED-001" not in page.text
+    assert "HL-OTHER-001" not in page.text
+    assert "HL-REC-001" not in page.text
     assert "新建车次" in page.text
     assert "已有车次" in page.text
+    assert trips.status_code == 200
+    assert [row["waybill_no"] for row in trips.json()["trips"]] == ["HL-SHARED-001", "HL-REC-001"]
+    app.dependency_overrides.clear()
+
+
+def test_mobile_report_huolala_trip_endpoint_requires_exact_company_and_date(db_session):
+    from app.db import get_session
+    from app.models import User
+    from app.services.logistics import create_waybill_record
+    from app.services.packing_drafts import create_packing_draft
+
+    worker = User(username="route_trip_api_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    other = User(username="route_trip_api_other", display_name="同事", password_hash="x", role="worker", is_active=True)
+    db_session.add_all([worker, other])
+    db_session.commit()
+    create_packing_draft(
+        db_session,
+        other.id,
+        "2026-08-09",
+        "源兴发",
+        "啦啦队",
+        "亮片啦啦队",
+        [{"size": "L", "quantity": 2}],
+        "共享车次",
+        waybill_no="HL-MATCH-001",
+        shipping_method="huolala",
+        package_count=3,
+        weight_kg=12.5,
+    )
+    create_packing_draft(
+        db_session,
+        other.id,
+        "2026-08-10",
+        "源兴发",
+        "啦啦队",
+        "亮片啦啦队",
+        [{"size": "L", "quantity": 2}],
+        "不同日期",
+        waybill_no="HL-WRONG-DATE-001",
+        shipping_method="huolala",
+        package_count=4,
+        weight_kg=13.5,
+    )
+    create_waybill_record(
+        db_session,
+        other.id,
+        "别家公司",
+        "2026-08-09",
+        "HL-WRONG-COMPANY-001",
+        courier="货拉拉",
+        weight_kg=9.5,
+        package_count=2,
+    )
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    anon = TestClient(app)
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    unauthorized = anon.get("/mobile/report/huolala-trips?company=源兴发&ship_date=2026-08-09")
+    matched = client.get("/mobile/report/huolala-trips?company=源兴发&ship_date=2026-08-09")
+    missing = client.get("/mobile/report/huolala-trips?company=&ship_date=2026-08-09")
+
+    assert unauthorized.status_code == 401
+    assert matched.status_code == 200
+    assert [row["waybill_no"] for row in matched.json()["trips"]] == ["HL-MATCH-001"]
+    assert missing.status_code == 200
+    assert missing.json()["trips"] == []
     app.dependency_overrides.clear()
 
 

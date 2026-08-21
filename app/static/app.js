@@ -258,8 +258,24 @@ async function updateSizes() {
   }
 }
 
-function getReportDraftKey(form) {
+function getReportDraftKey(form, packDateOverride) {
+  if (form.dataset.autosaveKey === "new") {
+    const packDate = (packDateOverride ?? form.querySelector('[name="pack_date"]')?.value || "").trim();
+    return `zy-report-draft:new:${packDate}`;
+  }
   return `zy-report-draft:${form.dataset.autosaveKey || "new"}`;
+}
+
+function updateReportDraftKey(form, nextKey) {
+  const previousKey = form.dataset.reportDraftKey || "";
+  if (previousKey && previousKey !== nextKey) {
+    try {
+      localStorage.removeItem(previousKey);
+    } catch (_) {
+      // Ignore storage write failures and continue with normal submission flow.
+    }
+  }
+  form.dataset.reportDraftKey = nextKey;
 }
 
 function collectReportDraft(form) {
@@ -284,17 +300,21 @@ function collectReportDraft(form) {
 }
 
 function saveReportDraft(form) {
+  const nextKey = getReportDraftKey(form);
   try {
-    localStorage.setItem(getReportDraftKey(form), JSON.stringify(collectReportDraft(form)));
+    updateReportDraftKey(form, nextKey);
+    localStorage.setItem(nextKey, JSON.stringify(collectReportDraft(form)));
   } catch (_) {
     // Local storage can be unavailable in private mode; submission should still work.
   }
 }
 
 async function restoreReportDraft(form) {
+  const draftKey = getReportDraftKey(form);
+  form.dataset.reportDraftKey = draftKey;
   let draft;
   try {
-    draft = JSON.parse(localStorage.getItem(getReportDraftKey(form)) || "null");
+    draft = JSON.parse(localStorage.getItem(draftKey) || "null");
   } catch (_) {
     draft = null;
   }
@@ -356,7 +376,7 @@ async function restoreReportDraft(form) {
   }
   const existingTrip = form.querySelector("[data-existing-trip]");
   if (existingTrip && draft.existingTrip) {
-    existingTrip.value = draft.existingTrip;
+    existingTrip.dataset.pendingValue = draft.existingTrip;
   }
   const waybillNo = form.querySelector('[name="waybill_no"]');
   if (waybillNo && draft.waybillNo !== undefined) {
@@ -543,13 +563,17 @@ function setupReportLogisticsForms() {
 
     const clearIncompatibleLogistics = () => {
       methodSelect.value = "";
-      if (existingTripSelect) existingTripSelect.value = "";
+      if (existingTripSelect) {
+        existingTripSelect.value = "";
+        existingTripSelect.dataset.pendingValue = "";
+      }
       tripModeInputs.forEach((input) => {
         input.checked = input.value === "new";
       });
       waybillInput.value = "";
       packageCountInput.value = "";
       weightInput.value = "";
+      form.dataset.currentWaybill = "";
     };
 
     const hasLogisticsValues = () => (
@@ -560,39 +584,78 @@ function setupReportLogisticsForms() {
       || !!(existingTripSelect && existingTripSelect.value)
     );
 
-    const filterExistingTrips = () => {
+    const resetExistingTripOptions = (selectedValue = "") => {
       if (!existingTripSelect) return;
-      const company = getCurrentCompany();
-      const packDate = packDateInput.value;
-      let selectedVisible = !existingTripSelect.value;
-      Array.from(existingTripSelect.options).forEach((option, index) => {
-        if (index === 0) return;
-        const visible = (!company || option.dataset.company === company)
-          && (!packDate || option.dataset.packDate === packDate);
-        option.hidden = !visible;
-        if (visible && option.value === existingTripSelect.value) {
-          selectedVisible = true;
-        }
-      });
-      if (!selectedVisible) {
-        existingTripSelect.value = "";
-      }
+      existingTripSelect.innerHTML = '<option value="">请选择已有货拉拉车次</option>';
+      existingTripSelect.value = selectedValue;
     };
 
-    const sync = () => {
+    const renderExistingTripOptions = (trips, selectedValue = "") => {
+      if (!existingTripSelect) return;
+      resetExistingTripOptions();
+      trips.forEach((trip) => {
+        const option = document.createElement("option");
+        option.value = trip.waybill_no || "";
+        option.dataset.company = trip.company_name || "";
+        option.dataset.packDate = trip.ship_date || "";
+        option.dataset.packageCount = String(trip.package_count ?? "");
+        option.dataset.weightKg = trip.weight_kg === undefined || trip.weight_kg === null ? "" : String(trip.weight_kg);
+        option.textContent = `${trip.waybill_no}｜${trip.company_name}｜${trip.ship_date}｜${trip.package_count}件｜${trip.weight_kg}kg`;
+        existingTripSelect.appendChild(option);
+      });
+      existingTripSelect.value = selectedValue;
+      if (existingTripSelect.value !== selectedValue) {
+        existingTripSelect.value = "";
+      }
+      existingTripSelect.dataset.pendingValue = existingTripSelect.value;
+    };
+
+    async function fetchHuolalaTrips(company, shipDate) {
+      if (!company || !shipDate) return [];
+      const params = new URLSearchParams({ company, ship_date: shipDate });
+      const response = await fetch(`/mobile/report/huolala-trips?${params.toString()}`, {
+        credentials: "same-origin",
+      }).catch(() => null);
+      if (!response || !response.ok) return [];
+      const payload = await response.json().catch(() => ({ trips: [] }));
+      return Array.isArray(payload.trips) ? payload.trips : [];
+    }
+
+    const loadExistingTrips = async () => {
+      if (!existingTripSelect) return;
+      const company = getCurrentCompany();
+      const shipDate = packDateInput.value;
+      const selectedValue = existingTripSelect.value
+        || existingTripSelect.dataset.pendingValue
+        || form.dataset.currentWaybill
+        || "";
+      if (!company || !shipDate) {
+        form.dataset.tripQuery = "";
+        resetExistingTripOptions();
+        existingTripSelect.dataset.pendingValue = "";
+        return;
+      }
+      const queryKey = `${company}|${shipDate}`;
+      const requestKey = `${queryKey}|${Date.now()}`;
+      form.dataset.tripRequestKey = requestKey;
+      const trips = await fetchHuolalaTrips(company, shipDate);
+      if (form.dataset.tripRequestKey !== requestKey) {
+        return;
+      }
+      form.dataset.tripQuery = queryKey;
+      renderExistingTripOptions(trips, selectedValue);
+    };
+
+    const sync = async () => {
       const currentKey = `${getCurrentCompany()}|${packDateInput.value}`;
       if (form.dataset.lastLogisticsKey && form.dataset.lastLogisticsKey !== currentKey && hasLogisticsValues()) {
         clearIncompatibleLogistics();
       }
       form.dataset.lastLogisticsKey = currentKey;
-      filterExistingTrips();
 
       const isCourier = methodSelect.value === "courier";
       const isHuolala = methodSelect.value === "huolala";
       const useExistingTrip = isHuolala && getTripMode() === "existing";
-      const selectedTrip = existingTripSelect && existingTripSelect.selectedOptions[0] && existingTripSelect.value
-        ? existingTripSelect.selectedOptions[0]
-        : null;
 
       if (huolalaPanel) huolalaPanel.hidden = !isHuolala;
       tripModeInputs.forEach((input) => {
@@ -613,6 +676,17 @@ function setupReportLogisticsForms() {
         return;
       }
 
+      if (isHuolala) {
+        await loadExistingTrips();
+      } else if (existingTripSelect) {
+        resetExistingTripOptions();
+        existingTripSelect.dataset.pendingValue = "";
+      }
+
+      const selectedTrip = existingTripSelect && existingTripSelect.selectedOptions[0] && existingTripSelect.value
+        ? existingTripSelect.selectedOptions[0]
+        : null;
+
       if (isHuolala && useExistingTrip && selectedTrip) {
         waybillInput.value = selectedTrip.value;
         packageCountInput.value = selectedTrip.dataset.packageCount || "";
@@ -620,6 +694,7 @@ function setupReportLogisticsForms() {
         waybillInput.readOnly = true;
         packageCountInput.readOnly = true;
         weightInput.readOnly = true;
+        existingTripSelect.dataset.pendingValue = selectedTrip.value;
         if (waybillHint) waybillHint.textContent = "已有货拉拉车次会自动带出并锁定件数和重量。";
         return;
       }
@@ -635,7 +710,7 @@ function setupReportLogisticsForms() {
       }
       if (waybillHint) {
         waybillHint.textContent = isHuolala
-          ? "货拉拉可新建车次，或选择已有车次复用。"
+          ? (useExistingTrip ? "请先选择同公司同日期的已有车次。" : "货拉拉可新建车次，或选择已有车次复用。")
           : "请先选择发货方式。";
       }
     };
@@ -643,10 +718,7 @@ function setupReportLogisticsForms() {
     const currentWaybill = form.dataset.currentWaybill || "";
     if (currentWaybill && existingTripSelect) {
       form._currentWaybill = currentWaybill;
-      const matchingOption = Array.from(existingTripSelect.options).find((option) => option.value === currentWaybill);
-      if (matchingOption) {
-        existingTripSelect.value = currentWaybill;
-      }
+      existingTripSelect.dataset.pendingValue = currentWaybill;
     }
 
     form._syncReportLogistics = sync;

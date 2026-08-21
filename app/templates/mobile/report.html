@@ -88,17 +88,6 @@
         </div>
         <select data-existing-trip>
           <option value="">请选择已有货拉拉车次</option>
-          {% for trip in huolala_trips %}
-          <option
-            value="{{ trip.waybill_no }}"
-            data-company="{{ trip.company_name }}"
-            data-pack-date="{{ trip.ship_date }}"
-            data-package-count="{{ trip.package_count }}"
-            data-weight-kg="{{ '%.2f'|format(trip.weight_kg) }}"
-          >
-            {{ trip.waybill_no }}｜{{ trip.company_name }}｜{{ trip.ship_date }}｜{{ trip.package_count }}件｜{{ '%.2f'|format(trip.weight_kg) }}kg
-          </option>
-          {% endfor %}
         </select>
       </div>
       <label>运单号</label>
@@ -174,18 +163,6 @@
               </div>
               <select data-existing-trip>
                 <option value="">请选择已有货拉拉车次</option>
-                {% for trip in huolala_trips %}
-                <option
-                  value="{{ trip.waybill_no }}"
-                  data-company="{{ trip.company_name }}"
-                  data-pack-date="{{ trip.ship_date }}"
-                  data-package-count="{{ trip.package_count }}"
-                  data-weight-kg="{{ '%.2f'|format(trip.weight_kg) }}"
-                  {% if trip.waybill_no == (d.waybill_no or '') %}selected{% endif %}
-                >
-                  {{ trip.waybill_no }}｜{{ trip.company_name }}｜{{ trip.ship_date }}｜{{ trip.package_count }}件｜{{ '%.2f'|format(trip.weight_kg) }}kg
-                </option>
-                {% endfor %}
               </select>
             </div>
             <label>运单号</label>
@@ -220,7 +197,7 @@
       {% endfor %}
       </div>
     {% else %}
-      <p class="empty">今天还没有包货草稿。</p>
+      <p class="empty">还没有未提交包货草稿。</p>
     {% endif %}
   </section>
 </main>

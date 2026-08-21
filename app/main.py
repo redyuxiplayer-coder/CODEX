@@ -390,13 +390,19 @@ def open_packing_drafts(session: Session, user_id: int) -> list[PackingDraft]:
     )
 
 
-def huolala_trip_options_payload(session: Session) -> list[dict]:
+def huolala_trip_options_payload(session: Session, company_name: str, ship_date: str) -> list[dict]:
+    company_name = company_name.strip()
+    ship_date = ship_date.strip()
+    if not company_name or not ship_date:
+        return []
     trips: dict[str, dict] = {}
     draft_rows = (
         session.query(PackingDraft)
         .filter(
             PackingDraft.shipping_method == "huolala",
             PackingDraft.waybill_no != "",
+            PackingDraft.company_name == company_name,
+            PackingDraft.pack_date == ship_date,
         )
         .order_by(PackingDraft.pack_date.desc(), PackingDraft.id.desc())
         .all()
@@ -414,7 +420,11 @@ def huolala_trip_options_payload(session: Session) -> list[dict]:
         }
     records = (
         session.query(WaybillRecord)
-        .filter(WaybillRecord.courier == "货拉拉")
+        .filter(
+            WaybillRecord.courier == "货拉拉",
+            WaybillRecord.company_name == company_name,
+            WaybillRecord.ship_date == ship_date,
+        )
         .order_by(WaybillRecord.ship_date.desc(), WaybillRecord.id.desc())
         .all()
     )
@@ -441,7 +451,6 @@ def mobile_report_page_context(request: Request, user: User, session: Session, m
         "drafts": open_packing_drafts(session, user.id),
         "companies": active_order_companies(session),
         "formal_orders": formal_order_options_payload(session),
-        "huolala_trips": huolala_trip_options_payload(session),
     }
     if message:
         context["message"] = message
@@ -1621,6 +1630,18 @@ def create_app() -> FastAPI:
             except ValueError as exc:
                 return JSONResponse({"detail": str(exc)}, status_code=404)
         return mobile_report_options_payload(session, company.strip(), product.strip(), style.strip())
+
+    @app.get("/mobile/report/huolala-trips")
+    def mobile_report_huolala_trips(
+        request: Request,
+        company: str = "",
+        ship_date: str = "",
+        session: Session = Depends(get_session),
+    ):
+        user = current_user(request, session)
+        if not user:
+            return JSONResponse({"detail": "请先登录"}, status_code=401)
+        return JSONResponse({"trips": huolala_trip_options_payload(session, company, ship_date)})
 
     @app.get("/mobile/report/scan")
     def mobile_report_scan(

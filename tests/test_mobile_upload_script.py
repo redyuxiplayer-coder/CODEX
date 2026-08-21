@@ -36,3 +36,8 @@ def test_mobile_upload_script_handles_order_filters_and_logistics_autosave():
     assert "packageCount:" in script
     assert "weightKg:" in script
     assert "clearIncompatibleLogistics" in script
+    assert 'zy-report-draft:new:' in script
+    assert 'form.dataset.autosaveKey === "new"' in script
+    assert "localStorage.removeItem(previousKey)" in script
+    assert "/mobile/report/huolala-trips" in script
+    assert "if (!company || !shipDate) return []" in script
