@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from app.db import engine_kwargs_for_url  # noqa: E402
 from app.models import Company, OrderLine, SalesOrder, ShipmentLine, ShipmentReport  # noqa: E402
 from app.services.aliases import canonical_item  # noqa: E402
-from app.services.ledger import recompute_for_report  # noqa: E402
+from app.services.ledger import order_line_totals, recompute_order_ledger  # noqa: E402
 from app.services.orders import APPROVED_STATUSES  # noqa: E402
 
 
@@ -83,6 +83,45 @@ def build_candidate_map(session: Session) -> dict[tuple[str, str, str, str], lis
             }
         )
     return candidates
+
+
+def serialize_canonical_key(key: tuple[str, str, str, str]) -> dict[str, str]:
+    return {
+        "company_name": key[0],
+        "canonical_product": key[1],
+        "canonical_style": key[2],
+        "size": key[3],
+    }
+
+
+def related_order_lines_for_key(session: Session, key: tuple[str, str, str, str]) -> list[dict]:
+    company_name, canonical_product, canonical_style, size = key
+    rows = (
+        session.query(OrderLine, Company, SalesOrder)
+        .join(Company, Company.id == OrderLine.company_id)
+        .outerjoin(SalesOrder, SalesOrder.id == OrderLine.order_id)
+        .filter(
+            Company.name == company_name,
+            OrderLine.size == size,
+            OrderLine.is_active.is_(True),
+        )
+        .order_by(OrderLine.order_date, OrderLine.id)
+        .all()
+    )
+    related = []
+    for order_line, company, order in rows:
+        line_key = candidate_base_key(session, company.name, order_line)
+        if line_key != key:
+            continue
+        related.append(
+            {
+                "order_line_id": int(order_line.id),
+                "order_id": int(order.id) if order is not None else None,
+                "system_order_no": order.system_order_no if order is not None else "",
+                "canonical_key": serialize_canonical_key(key),
+            }
+        )
+    return related
 
 
 def classify_unbound_lines(session: Session) -> dict:
@@ -161,6 +200,22 @@ def apply_unique_bindings(session: Session, *, commit: bool = True) -> dict:
     bindings = []
     affected_report_ids: set[int] = set()
     bound_report_count = 0
+    canonical_keys = {
+        (
+            item["company_name"],
+            item["canonical_product"],
+            item["canonical_style"],
+            item["size"],
+        )
+        for item in classification["unique"]
+    }
+    recompute_targets = {}
+    before_totals = {}
+    for key in sorted(canonical_keys):
+        for target in related_order_lines_for_key(session, key):
+            order_line_id = target["order_line_id"]
+            recompute_targets.setdefault(order_line_id, target)
+            before_totals.setdefault(order_line_id, order_line_totals(session, order_line_id))
     for item in classification["unique"]:
         line = session.get(ShipmentLine, int(item["shipment_line_id"]))
         if line is None or line.order_line_id is not None:
@@ -175,6 +230,14 @@ def apply_unique_bindings(session: Session, *, commit: bool = True) -> dict:
                 "system_order_no": item["system_order_no"],
                 "quantity": int(line.quantity or 0),
                 "size": clean_text(line.size),
+                "canonical_key": serialize_canonical_key(
+                    (
+                        item["company_name"],
+                        item["canonical_product"],
+                        item["canonical_style"],
+                        item["size"],
+                    )
+                ),
             }
         )
         affected_report_ids.add(int(line.report_id))
@@ -196,7 +259,17 @@ def apply_unique_bindings(session: Session, *, commit: bool = True) -> dict:
                     "after_order_id": report.order_id,
                 }
             )
-        recompute_for_report(session, report.id, commit=False)
+
+    recomputed_order_lines = []
+    for order_line_id in sorted(recompute_targets):
+        recompute_order_ledger(session, order_line_id, commit=False)
+        recomputed_order_lines.append(
+            {
+                **recompute_targets[order_line_id],
+                "before_totals": before_totals[order_line_id],
+                "after_totals": order_line_totals(session, order_line_id),
+            }
+        )
 
     if commit:
         session.commit()
@@ -207,6 +280,7 @@ def apply_unique_bindings(session: Session, *, commit: bool = True) -> dict:
         "bound_report_count": bound_report_count,
         "bindings": bindings,
         "report_updates": report_updates,
+        "recomputed_order_lines": recomputed_order_lines,
         "ambiguous": classification["ambiguous"],
         "unmatched": classification["unmatched"],
     }
@@ -246,9 +320,15 @@ def build_parser() -> argparse.ArgumentParser:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--database", help="Database URL or SQLite file path.")
     source.add_argument("--database-url-env", help="Environment variable name holding the database URL/path.")
-    parser.add_argument("--preview", help="Write preview JSON in read-only mode.")
-    parser.add_argument("--apply", action="store_true", help="Apply unique bindings.")
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--preview", help="Write preview JSON in read-only mode.")
+    action.add_argument("--apply", action="store_true", help="Apply unique bindings.")
     parser.add_argument("--audit", help="Write apply audit JSON.")
+    parser.add_argument(
+        "--confirm-production-backup",
+        action="store_true",
+        help="Required for non-SQLite apply runs after a verified backup.",
+    )
     return parser
 
 
@@ -257,12 +337,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.apply and not args.audit:
         parser.error("--apply requires --audit")
-    if not args.apply and not args.preview:
-        parser.error("preview mode requires --preview")
     if not args.apply and args.audit:
         parser.error("--audit is only valid with --apply")
 
     database_url = resolve_database_url(args.database, args.database_url_env)
+    if args.apply and not database_url.startswith("sqlite") and not args.confirm_production_backup:
+        raise ValueError("Non-SQLite apply requires --confirm-production-backup")
     session = open_session(database_url)
     try:
         if args.apply:
