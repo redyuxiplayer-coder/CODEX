@@ -53,3 +53,10 @@ def test_mobile_upload_script_handles_order_filters_and_logistics_autosave():
     assert "localStorage.removeItem(previousKey)" in script
     assert "/mobile/report/huolala-trips" in script
     assert "if (!company || !shipDate) return []" in script
+
+
+def test_order_filter_rebuilds_native_select_options_for_ios_safari():
+    script = Path("app/static/app.js").read_text(encoding="utf-8")
+
+    assert "option.hidden = !visible" not in script
+    assert "select.replaceChildren" in script

@@ -1393,7 +1393,7 @@ def test_mobile_report_renders_order_filters_and_existing_huolala_choices(db_ses
     assert page.status_code == 200
     assert 'id="order-company-filter"' in page.text
     assert '<option value="源兴发">源兴发</option>' in page.text
-    assert '/static/app.js?v=20260821-1' in page.text
+    assert '/static/app.js?v=20260821-2' in page.text
     assert 'id="order-style-color-filter"' in page.text
     assert 'id="order-search-filter"' in page.text
     assert "订单号｜下单日期｜颜色｜还差摘要" in page.text

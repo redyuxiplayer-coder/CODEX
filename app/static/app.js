@@ -128,6 +128,7 @@ function setupFormalOrderSelector() {
   const searchInput = form && form.querySelector("[data-order-search-filter]");
   if (!form || !select || !companyFilter || !styleColorFilter || !searchInput) return;
 
+  const placeholderOption = select.querySelector('option[value=""]');
   const orderOptions = Array.from(select.options).filter((option) => option.value);
 
   const updateStyleColorChoices = () => {
@@ -149,14 +150,16 @@ function setupFormalOrderSelector() {
     const company = companyFilter.value;
     const styleColor = styleColorFilter.value;
     const query = searchInput.value.trim().toLowerCase();
-    orderOptions.forEach((option) => {
-      const visible = (!company || option.dataset.company === company)
+    const selectedValue = select.value;
+    const visibleOptions = orderOptions.filter((option) => (
+      (!company || option.dataset.company === company)
         && (!styleColor || option.dataset.styleColor === styleColor)
-        && (!query || option.dataset.search.toLowerCase().includes(query.toLowerCase()));
-      option.hidden = !visible;
-    });
-    const selected = select.selectedOptions[0];
-    if (selected && selected.value && selected.hidden) {
+        && (!query || option.dataset.search.toLowerCase().includes(query.toLowerCase()))
+    ));
+    select.replaceChildren(...(placeholderOption ? [placeholderOption] : []), ...visibleOptions);
+    if (selectedValue && visibleOptions.some((option) => option.value === selectedValue)) {
+      select.value = selectedValue;
+    } else if (selectedValue) {
       select.value = "";
       updateFormalOrderLines();
     }
