@@ -36,6 +36,9 @@
           <label for="order-company-filter">订单公司</label>
           <select id="order-company-filter" data-order-company-filter>
             <option value="">全部公司</option>
+            {% for company in companies %}
+            <option value="{{ company }}">{{ company }}</option>
+            {% endfor %}
           </select>
         </div>
         <div>
@@ -204,6 +207,6 @@
 <script>
 window.ORDER_COMPANIES = {{ companies|tojson }};
 </script>
-<script src="/static/app.js?v=20260804-7"></script>
+<script src="/static/app.js?v=20260821-1"></script>
 </body>
 </html>
