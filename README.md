@@ -37,7 +37,12 @@
 
 ### 手机端（/mobile）
 
-- 发货上报：按订单行拆分，点选公司/产品/款式/尺码数量，可上传照片
+- 发货上报（`/mobile/report`）：
+  - 员工可直接填写发货日期，日期必填且不能晚于当天
+  - 订单选择器支持公司、款式/颜色、订单号筛选；下拉文案显示 `订单号｜下单日期｜颜色｜还差摘要`
+  - 草稿列表展示全部“未提交包货草稿”，不再只看当天
+  - 物流字段为必填：发货方式（`courier` / `huolala`）、运单/车次号、件数、总重量
+  - `huolala` 可留空新建车次号，也可复用同公司 + 同发货日期的已有车次；复用时件数和重量会沿用已有记录
 - 我的上报：补录/修改，老板审核留痕
 - 今日目标、作业信息
 
@@ -45,13 +50,14 @@
 
 ```bash
 # 后端测试
-pytest tests
+python -m pytest tests -q
 
 # 前端构建（打包到 web/dist）
-cd web && npm run build
+cd web
+npm run build
 ```
 
-本地默认连 `data/zy_shipping.sqlite3`；设置 `SUPABASE_DATABASE_URL` 环境变量可切换数据库（正式环境指向云端 PostgreSQL）。
+本地默认连 `data/zy_shipping.sqlite3`。如需切换到 PostgreSQL，可设置 `SUPABASE_DATABASE_URL` 环境变量传入数据库 URL；这是沿用的历史变量名，当前数据库架构不依赖 Supabase。
 
 ## 数据库变更
 
@@ -68,6 +74,38 @@ GRANT ALL PRIVILEGES ON TABLE <表名> TO zy_shipping;
 GRANT ALL PRIVILEGES ON SEQUENCE <表名>_id_seq TO zy_shipping;
 ALTER TABLE <表名> DISABLE ROW LEVEL SECURITY;
 ```
+
+本轮员工发货页物流字段迁移脚本：
+
+```bash
+sudo -u postgres psql -d zy_shipping -f scripts/migration_2026_08_21_packing_logistics.sql
+```
+
+该脚本使用 `ADD COLUMN IF NOT EXISTS`，可重复执行；执行前仍必须先备份生产数据库。
+
+## 历史发货补绑修复
+
+先用只读 SQL 核验，再决定是否运行 repair CLI：
+
+```bash
+sudo -u postgres psql -d zy_shipping -f scripts/audit_orders.sql
+```
+
+- `A1`：恰好 1 个正式活跃订单行候选，可安全补绑
+- `B`：没有匹配候选，不会自动处理
+- `C`：多个活跃候选，属于歧义，不会自动处理
+
+repair CLI 默认分两步：
+
+```bash
+python scripts/repair_unique_shipment_order_bindings.py --database /path/to/db.sqlite3 --preview repair-preview.json
+python scripts/repair_unique_shipment_order_bindings.py --database /path/to/db.sqlite3 --apply --audit repair-audit.json
+```
+
+- `--preview` 只读输出 JSON，不写库
+- `--apply` 只会补绑 `preview` 里 `unique` 的记录，`ambiguous` 和 `unmatched` 会保持不变
+- 非 SQLite 数据库执行 `--apply` 前，必须先完成备份，并显式加 `--confirm-production-backup`
+- 生产执行前至少备份 PostgreSQL、`data/uploads/`、`data/waybills/`
 
 ## 数据备份
 
