@@ -338,3 +338,53 @@ def test_waybill_conflict_does_not_create_partial_report(db_session):
     db_session.refresh(draft)
     assert draft.submitted_report_id is None
     assert db_session.query(ShipmentReport).count() == 0
+
+
+def test_get_or_create_matching_waybill_recovers_from_integrity_error(db_session, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import sessionmaker
+
+    admin = User(username="admin_race", display_name="老板", password_hash="x", role="admin", is_active=True)
+    db_session.add(admin)
+    db_session.commit()
+    from app.services import packing_drafts as packing_drafts_service
+    from app.services.packing_drafts import get_or_create_matching_waybill
+
+    triggered = {"done": False}
+
+    def racing_create_waybill_record(*args, **kwargs):
+        if not triggered["done"]:
+            triggered["done"] = True
+            Session = sessionmaker(bind=db_session.bind)
+            race_session = Session()
+            try:
+                create_waybill_record(
+                    race_session,
+                    admin.id,
+                    "源兴发",
+                    "2026-08-04",
+                    "YT-RACE-001",
+                    courier="快递",
+                    weight_kg=8,
+                    package_count=2,
+                )
+            finally:
+                race_session.close()
+            raise IntegrityError("insert into waybill_records", {}, Exception("duplicate key"))
+        return create_waybill_record(*args, **kwargs)
+
+    monkeypatch.setattr(packing_drafts_service, "create_waybill_record", racing_create_waybill_record)
+
+    record = get_or_create_matching_waybill(
+        db_session,
+        user_id=admin.id,
+        company_name="源兴发",
+        ship_date="2026-08-04",
+        waybill_no="YT-RACE-001",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=8,
+    )
+
+    assert record.waybill_no == "YT-RACE-001"
+    assert db_session.query(WaybillRecord).count() == 1

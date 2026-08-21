@@ -1,6 +1,8 @@
 from datetime import date
 from pathlib import Path
 
+from sqlalchemy.exc import IntegrityError
+
 from app.models import OrderLine, PackingDraft, PackingDraftLine, PackingDraftPhoto, SalesOrder
 from app.services.ledger import recompute_for_report
 from app.services.logistics import create_waybill_record, matching_waybill_or_none, shipping_method_label
@@ -135,6 +137,54 @@ def validate_shipping_details(
         weight_kg=weight,
     )
     return method, normalized_waybill, count, weight
+
+
+def get_or_create_matching_waybill(
+    session,
+    *,
+    user_id: int,
+    company_name: str,
+    ship_date: str,
+    waybill_no: str,
+    shipping_method: str,
+    package_count: int,
+    weight_kg: float,
+):
+    existing = matching_waybill_or_none(
+        session,
+        company_name=company_name,
+        ship_date=ship_date,
+        waybill_no=waybill_no,
+        package_count=package_count,
+        weight_kg=weight_kg,
+    )
+    if existing is not None:
+        return existing
+    try:
+        with session.begin_nested():
+            return create_waybill_record(
+                session,
+                user_id,
+                company_name,
+                ship_date,
+                waybill_no,
+                courier=shipping_method_label(shipping_method),
+                weight_kg=weight_kg,
+                package_count=package_count,
+                commit=False,
+            )
+    except IntegrityError:
+        existing = matching_waybill_or_none(
+            session,
+            company_name=company_name,
+            ship_date=ship_date,
+            waybill_no=waybill_no,
+            package_count=package_count,
+            weight_kg=weight_kg,
+        )
+        if existing is not None:
+            return existing
+        raise
 
 
 def create_packing_draft(
@@ -336,26 +386,16 @@ def submit_packing_draft(session, draft_id: int, user_id: int):
             order_id=draft.order_id,
             commit=False,
         )
-        waybill = matching_waybill_or_none(
+        waybill = get_or_create_matching_waybill(
             session,
+            user_id=user_id,
             company_name=draft.company_name,
             ship_date=normalized_pack_date,
             waybill_no=normalized_waybill,
+            shipping_method=normalized_method,
             package_count=normalized_package_count,
             weight_kg=normalized_weight,
         )
-        if waybill is None:
-            waybill = create_waybill_record(
-                session,
-                user_id,
-                draft.company_name,
-                normalized_pack_date,
-                normalized_waybill,
-                courier=shipping_method_label(normalized_method),
-                weight_kg=normalized_weight,
-                package_count=normalized_package_count,
-                commit=False,
-            )
         report.waybill_id = waybill.id
         draft.pack_date = normalized_pack_date
         draft.shipping_method = normalized_method

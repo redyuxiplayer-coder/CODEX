@@ -26,7 +26,8 @@
   <section class="panel mobile-section">
     <h2>新增包货草稿</h2>
     <form method="post" action="/mobile/today/new" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="new">
-      <input type="hidden" name="pack_date" value="{{ today }}">
+      <label>发货日期</label>
+      <input type="date" name="pack_date" value="{{ today }}" max="{{ today }}" required>
       <label>订单号</label>
       <select name="order_id" id="formal-order" required>
         <option value="">请选择本次发货对应的订单</option>
@@ -39,8 +40,18 @@
       <div id="formal-order-detail" class="hint"></div>
       <p class="hint">一张包货草稿只能对应一个订单；选好订单后填写各尺码数量。多个数量可用 <b>+</b> 连接，例如 60+60+45。</p>
       <div id="size-box"></div>
-      <label>运单号（可选）</label>
-      <input name="waybill_no" placeholder="例如 YT1234567890">
+      <label>发货方式</label>
+      <select name="shipping_method" required>
+        <option value="">请选择发货方式</option>
+        <option value="courier">快递</option>
+        <option value="huolala">货拉拉</option>
+      </select>
+      <label>运单号</label>
+      <input name="waybill_no" placeholder="例如 YT1234567890" required>
+      <label>发货件数</label>
+      <input name="package_count" type="number" min="1" step="1" required>
+      <label>总重量（kg）</label>
+      <input name="weight_kg" type="number" min="0.01" step="0.01" required>
       <label>备注</label>
       <textarea name="note" rows="2"></textarea>
       <button>保存草稿</button>
@@ -56,6 +67,8 @@
           <div class="item-title">{% if d.order %}{{ d.order.system_order_no }} · {% endif %}{{ d.company_name }} · {{ d.product_name }}</div>
           <div class="item-sub">{{ d.style_name }}{% if d.order and d.order.color_name %} · {{ d.order.color_name }}{% endif %} / 未上报{% if d.package_no %} / {{ d.package_no }}{% endif %}</div>
           <form method="post" action="/mobile/today/{{ d.id }}/update" enctype="multipart/form-data" class="grid-form report-draft-form" data-autosave-key="draft-{{ d.id }}">
+            <label>发货日期</label>
+            <input type="date" name="pack_date" value="{{ d.pack_date }}" max="{{ today }}" required>
             {% for l in d.lines %}
             <div class="size-row">
               <input type="hidden" name="order_line_ids" value="{{ l.order_line_id or '' }}">
@@ -66,8 +79,18 @@
               </div>
             </div>
             {% endfor %}
+            <label>发货方式</label>
+            <select name="shipping_method" required>
+              <option value="">请选择发货方式</option>
+              <option value="courier" {% if d.shipping_method == "courier" %}selected{% endif %}>快递</option>
+              <option value="huolala" {% if d.shipping_method == "huolala" %}selected{% endif %}>货拉拉</option>
+            </select>
             <label>运单号</label>
-            <input name="waybill_no" value="{{ d.waybill_no or '' }}" placeholder="例如 YT1234567890">
+            <input name="waybill_no" value="{{ d.waybill_no or '' }}" placeholder="例如 YT1234567890" required>
+            <label>发货件数</label>
+            <input name="package_count" type="number" min="1" step="1" value="{{ d.package_count or '' }}" required>
+            <label>总重量（kg）</label>
+            <input name="weight_kg" type="number" min="0.01" step="0.01" value="{{ d.weight_kg or '' }}" required>
             <textarea name="note" rows="2" placeholder="备注">{{ d.note }}</textarea>
             {% if d.photos %}
             <div class="report-photos">

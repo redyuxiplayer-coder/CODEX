@@ -920,6 +920,10 @@ def test_mobile_packing_draft_preserves_order_line_id(db_session):
             "sizes": ["L"],
             "quantities": ["60+40"],
             "note": "按单上报",
+            "shipping_method": "courier",
+            "waybill_no": "YT-PAGE-ORDERLINE-001",
+            "package_count": "2",
+            "weight_kg": "8.5",
         },
         follow_redirects=False,
     )
@@ -1213,6 +1217,10 @@ def test_mobile_report_draft_ignores_uploaded_photos(db_session):
             "sizes": ["L"],
             "quantities": ["225"],
             "note": "",
+            "shipping_method": "courier",
+            "waybill_no": "YT-PAGE-NOPHOTO-001",
+            "package_count": "2",
+            "weight_kg": "10.5",
         },
         files=[("photos", (f"box-{index}.png", b"box", "image/png")) for index in range(7)],
         follow_redirects=False,
@@ -1248,6 +1256,10 @@ def test_mobile_report_quantity_accepts_addition_expression(db_session):
             "sizes": ["M"],
             "quantities": ["60+60+60+45"],
             "note": "",
+            "shipping_method": "courier",
+            "waybill_no": "YT-PAGE-QTY-001",
+            "package_count": "2",
+            "weight_kg": "10.6",
         },
         follow_redirects=False,
     )
@@ -1267,6 +1279,98 @@ def test_mobile_report_page_uses_lazy_order_balance_hint_data():
     assert response.status_code == 200
     assert "window.ORDER_COMPANIES" in response.text
     assert "window.ORDER_BALANCES" not in response.text
+
+
+def test_mobile_report_form_renders_basic_logistics_fields(db_session):
+    from app.db import get_session
+    from app.models import User
+
+    worker = User(username="route_fields_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/report")
+
+    assert page.status_code == 200
+    for field_name in ['name="shipping_method"', 'name="package_count"', 'name="weight_kg"', 'name="pack_date"']:
+        assert field_name in page.text
+    app.dependency_overrides.clear()
+
+
+def test_mobile_route_create_update_and_submit_packing_draft_with_logistics(db_session):
+    from app.db import get_session
+    from app.models import PackingDraft, ShipmentReport, User, WaybillRecord
+    from app.services.orders import create_order_line
+
+    worker = User(username="route_logistics_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男款", "L", 500)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    created = client.post(
+        "/mobile/today/new",
+        data={
+            "pack_date": "2026-07-18",
+            "company_name": "源兴发",
+            "product_name": "小红帽",
+            "style_name": "小红帽男款",
+            "sizes": ["L"],
+            "quantities": ["225"],
+            "note": "首包",
+            "shipping_method": "courier",
+            "waybill_no": "YT-ROUTE-001",
+            "package_count": "2",
+            "weight_kg": "11.5",
+        },
+        follow_redirects=False,
+    )
+
+    assert created.status_code == 303
+    draft = db_session.query(PackingDraft).one()
+    assert draft.shipping_method == "courier"
+    assert draft.package_count == 2
+    assert draft.weight_kg == 11.5
+
+    updated = client.post(
+        f"/mobile/today/{draft.id}/update",
+        data={
+            "pack_date": "2026-07-18",
+            "sizes": ["L"],
+            "order_line_ids": [""],
+            "quantities": ["230"],
+            "note": "改成230",
+            "shipping_method": "courier",
+            "waybill_no": "YT-ROUTE-001",
+            "package_count": "3",
+            "weight_kg": "12.5",
+        },
+        follow_redirects=False,
+    )
+
+    assert updated.status_code == 303
+    db_session.refresh(draft)
+    assert draft.lines[0].quantity == 230
+    assert draft.package_count == 3
+    assert draft.weight_kg == 12.5
+
+    submitted = client.post(f"/mobile/today/{draft.id}/submit", follow_redirects=False)
+
+    assert submitted.status_code == 303
+    report = db_session.query(ShipmentReport).one()
+    assert report.waybill_no == "YT-ROUTE-001"
+    assert report.waybill_id is not None
+    waybill = db_session.query(WaybillRecord).one()
+    assert waybill.package_count == 3
+    assert waybill.weight_kg == 12.5
+    app.dependency_overrides.clear()
 
 
 def test_mobile_report_submit_script_does_not_reenter_submit_event():

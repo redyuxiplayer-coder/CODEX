@@ -1561,7 +1561,10 @@ def create_app() -> FastAPI:
         order_line_ids: list[str] = Form([]),
         quantities: list[str] = Form([]),
         note: str = Form(""),
+        shipping_method: str = Form(""),
         waybill_no: str = Form(""),
+        package_count: str = Form(""),
+        weight_kg: str = Form(""),
         session: Session = Depends(get_session),
     ):
         user = require_user(request, session)
@@ -1585,6 +1588,9 @@ def create_app() -> FastAPI:
                 [],
                 waybill_no,
                 order_id=order_id,
+                shipping_method=shipping_method,
+                package_count=package_count,
+                weight_kg=weight_kg,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1594,11 +1600,15 @@ def create_app() -> FastAPI:
     async def mobile_today_update(
         request: Request,
         report_id: int,
+        pack_date: str = Form(""),
         sizes: list[str] = Form([]),
         order_line_ids: list[str] = Form([]),
         quantities: list[str] = Form([]),
         note: str = Form(""),
+        shipping_method: str = Form(""),
         waybill_no: str = Form(""),
+        package_count: str = Form(""),
+        weight_kg: str = Form(""),
         session: Session = Depends(get_session),
     ):
         user = require_user(request, session)
@@ -1608,7 +1618,19 @@ def create_app() -> FastAPI:
             if size and qty
         ]
         try:
-            update_packing_draft(session, report_id, user.id, lines, note, [], waybill_no)
+            update_packing_draft(
+                session,
+                report_id,
+                user.id,
+                lines,
+                note,
+                [],
+                waybill_no,
+                shipping_method=shipping_method,
+                package_count=package_count,
+                weight_kg=weight_kg,
+                pack_date=pack_date,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse("/mobile/today", status_code=303)

@@ -149,6 +149,10 @@ def test_worker_mobile_form_submits_one_selected_order(db_session):
             "order_line_ids": [str(order.lines[0].id)],
             "sizes": ["S"],
             "quantities": ["20"],
+            "shipping_method": "courier",
+            "waybill_no": "YT-BIND-ROUTE-001",
+            "package_count": "2",
+            "weight_kg": "9.5",
         },
         follow_redirects=False,
     )
@@ -266,6 +270,10 @@ def test_mobile_posts_return_controlled_error_for_archived_order(db_session):
         "order_line_ids": [str(order.lines[0].id)],
         "sizes": ["S"],
         "quantities": ["1"],
+        "shipping_method": "courier",
+        "waybill_no": "YT-BIND-ROUTE-ERR-001",
+        "package_count": "1",
+        "weight_kg": "1.5",
     }
 
     direct = client.post("/mobile/report", data=data)
