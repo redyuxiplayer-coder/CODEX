@@ -16,6 +16,60 @@ WHERE l.order_line_id IS NULL
   AND r.status IN ('auto_approved','approved_after_edit')
 ORDER BY r.company_name, c_product, c_style, l.size, r.ship_date;
 
+\echo '=== A1. 未绑定发货里按 alias 归一后恰好 1 个正式活跃订单行候选（可安全修复） ==='
+WITH unbound AS (
+  SELECT r.id AS report_id, r.ship_date, r.company_name, r.product_name, r.style_name,
+         l.id AS shipment_line_id, l.size, l.quantity,
+         COALESCE((SELECT canonical_product FROM product_aliases a
+                   WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
+                     AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.product_name) AS c_product,
+         COALESCE((SELECT canonical_style FROM product_aliases a
+                   WHERE a.company_name=r.company_name AND a.alias_product=r.product_name
+                     AND a.alias_style=r.style_name AND a.is_active = TRUE LIMIT 1), r.style_name) AS c_style
+  FROM shipment_reports r
+  JOIN shipment_lines l ON l.report_id = r.id
+  WHERE l.order_line_id IS NULL
+    AND r.status IN ('auto_approved','approved_after_edit')
+),
+formal_lines AS (
+  SELECT o.id AS order_line_id, o.order_id, so.system_order_no, so.order_date, c.name AS company_name,
+         o.size,
+         COALESCE((SELECT canonical_product FROM product_aliases a
+                   WHERE a.company_name=c.name AND a.alias_product=o.product_name
+                     AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.product_name) AS c_product,
+         COALESCE((SELECT canonical_style FROM product_aliases a
+                   WHERE a.company_name=c.name AND a.alias_product=o.product_name
+                     AND a.alias_style=o.style_name AND a.is_active = TRUE LIMIT 1), o.style_name) AS c_style
+  FROM order_lines o
+  JOIN sales_orders so ON so.id = o.order_id
+  JOIN companies c ON c.id = o.company_id
+  WHERE o.is_active = TRUE
+    AND so.status = 'active'
+),
+matched AS (
+  SELECT u.report_id, u.ship_date, u.shipment_line_id, u.company_name, u.product_name, u.style_name,
+         u.c_product, u.c_style, u.size, u.quantity,
+         f.order_line_id, f.order_id, f.system_order_no, f.order_date
+  FROM unbound u
+  JOIN formal_lines f
+    ON f.company_name = u.company_name
+   AND f.c_product = u.c_product
+   AND f.c_style = u.c_style
+   AND f.size = u.size
+),
+counts AS (
+  SELECT shipment_line_id, COUNT(*) AS candidate_count
+  FROM matched
+  GROUP BY shipment_line_id
+)
+SELECT m.report_id, m.ship_date, m.shipment_line_id, m.company_name, m.product_name, m.style_name,
+       m.c_product, m.c_style, m.size, m.quantity,
+       m.order_line_id, m.order_id, m.system_order_no, m.order_date
+FROM matched m
+JOIN counts c ON c.shipment_line_id = m.shipment_line_id
+WHERE c.candidate_count = 1
+ORDER BY m.company_name, m.c_product, m.c_style, m.size, m.ship_date, m.report_id;
+
 \echo '=== B. 未绑定发货找不到任何匹配订单（孤儿发货，谁都没归入） ==='
 SELECT u.report_id, u.ship_date, u.company_name, u.style_name, u.size, u.quantity, u.c_style
 FROM (
