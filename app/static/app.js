@@ -382,6 +382,27 @@ function setupReportDraftForms() {
   });
 }
 
+function setupShippingMethodFields() {
+  document.querySelectorAll(".report-draft-form").forEach((form) => {
+    const methodSelect = form.querySelector('[name="shipping_method"]');
+    const waybillInput = form.querySelector("[data-waybill-input]");
+    const waybillHint = form.querySelector("[data-waybill-hint]");
+    if (!methodSelect || !waybillInput) return;
+    const sync = () => {
+      const isCourier = methodSelect.value === "courier";
+      waybillInput.required = isCourier;
+      waybillInput.placeholder = isCourier ? "例如 YT1234567890" : "留空会自动生成货拉拉车次号";
+      if (waybillHint) {
+        waybillHint.textContent = isCourier
+          ? "快递必须填写真实运单号。"
+          : "货拉拉可留空自动生成车次号；若已有车次可直接填写原编号。";
+      }
+    };
+    methodSelect.addEventListener("change", sync);
+    sync();
+  });
+}
+
 function setupQuantityPlusButtons() {
   document.addEventListener("click", (event) => {
     const button = event.target.closest(".plus-btn");
@@ -548,6 +569,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   setupFormalOrderSelector();
   setupReportDraftForms();
+  setupShippingMethodFields();
   setupQuantityPlusButtons();
   setupBarcodeScan();
   setupPhotoLightbox();

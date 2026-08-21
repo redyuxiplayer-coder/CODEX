@@ -47,7 +47,8 @@
         <option value="huolala">货拉拉</option>
       </select>
       <label>运单号</label>
-      <input name="waybill_no" placeholder="例如 YT1234567890" required>
+      <input name="waybill_no" placeholder="例如 YT1234567890" data-waybill-input>
+      <p class="hint" data-waybill-hint>快递必须填写真实运单号；货拉拉可留空自动生成车次号。</p>
       <label>发货件数</label>
       <input name="package_count" type="number" min="1" step="1" required>
       <label>总重量（kg）</label>
@@ -86,7 +87,8 @@
               <option value="huolala" {% if d.shipping_method == "huolala" %}selected{% endif %}>货拉拉</option>
             </select>
             <label>运单号</label>
-            <input name="waybill_no" value="{{ d.waybill_no or '' }}" placeholder="例如 YT1234567890" required>
+            <input name="waybill_no" value="{{ d.waybill_no or '' }}" placeholder="例如 YT1234567890" data-waybill-input>
+            <p class="hint" data-waybill-hint>快递必须填写真实运单号；货拉拉可留空自动生成车次号。</p>
             <label>发货件数</label>
             <input name="package_count" type="number" min="1" step="1" value="{{ d.package_count or '' }}" required>
             <label>总重量（kg）</label>

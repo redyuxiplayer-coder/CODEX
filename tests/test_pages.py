@@ -1298,6 +1298,9 @@ def test_mobile_report_form_renders_basic_logistics_fields(db_session):
     assert page.status_code == 200
     for field_name in ['name="shipping_method"', 'name="package_count"', 'name="weight_kg"', 'name="pack_date"']:
         assert field_name in page.text
+    assert 'name="waybill_no"' in page.text
+    assert 'name="waybill_no" placeholder="例如 YT1234567890" required' not in page.text
+    assert "货拉拉可留空自动生成车次号" in page.text
     app.dependency_overrides.clear()
 
 
@@ -1370,6 +1373,45 @@ def test_mobile_route_create_update_and_submit_packing_draft_with_logistics(db_s
     waybill = db_session.query(WaybillRecord).one()
     assert waybill.package_count == 3
     assert waybill.weight_kg == 12.5
+    app.dependency_overrides.clear()
+
+
+def test_mobile_route_create_huolala_draft_without_waybill_no(db_session):
+    from app.db import get_session
+    from app.models import PackingDraft, User
+    from app.services.orders import create_order_line
+
+    worker = User(username="route_huolala_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男款", "L", 500)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    created = client.post(
+        "/mobile/today/new",
+        data={
+            "pack_date": "2026-07-18",
+            "company_name": "源兴发",
+            "product_name": "小红帽",
+            "style_name": "小红帽男款",
+            "sizes": ["L"],
+            "quantities": ["225"],
+            "note": "货拉拉首包",
+            "shipping_method": "huolala",
+            "waybill_no": "",
+            "package_count": "2",
+            "weight_kg": "11.5",
+        },
+        follow_redirects=False,
+    )
+
+    assert created.status_code == 303
+    draft = db_session.query(PackingDraft).one()
+    assert draft.shipping_method == "huolala"
+    assert draft.waybill_no == "货拉拉-20260718-001"
     app.dependency_overrides.clear()
 
 
