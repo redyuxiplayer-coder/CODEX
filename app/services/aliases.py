@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import ProductAlias
@@ -72,12 +73,17 @@ def list_product_aliases(session: Session) -> list[ProductAlias]:
 def alias_lookup(session: Session, company_name: str | None = None) -> dict[tuple[str, str, str], tuple[str, str]]:
     query = session.query(ProductAlias).filter(ProductAlias.is_active.is_(True))
     if company_name:
-        query = query.filter(ProductAlias.company_name == clean_text(company_name))
-    rows = query.all()
+        query = query.filter(func.trim(ProductAlias.company_name) == clean_text(company_name))
+    rows = query.order_by(ProductAlias.id).all()
     lookup: dict[tuple[str, str, str], tuple[str, str]] = {}
     for row in rows:
-        lookup[(row.company_name, row.alias_product, row.alias_style)] = (row.canonical_product, row.canonical_style)
-        lookup[(row.company_name, row.canonical_product, row.canonical_style)] = (row.canonical_product, row.canonical_style)
+        company = clean_text(row.company_name)
+        alias_product = clean_text(row.alias_product)
+        alias_style = clean_text(row.alias_style)
+        canonical_product = clean_text(row.canonical_product)
+        canonical_style = clean_text(row.canonical_style)
+        lookup[(company, alias_product, alias_style)] = (canonical_product, canonical_style)
+        lookup[(company, canonical_product, canonical_style)] = (canonical_product, canonical_style)
     return lookup
 
 

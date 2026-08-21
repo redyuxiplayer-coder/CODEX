@@ -75,7 +75,6 @@ from app.services.shipments import (
     ensure_report_not_archived,
     reject_report,
     resolve_order_line_id,
-    submit_shipment_report,
     update_own_pending_report,
 )
 from app.services.skus import (
@@ -248,13 +247,13 @@ def active_order_companies(session: Session) -> list[str]:
     return sorted({row["company"] for row in worker_visible_balances(session) if row["company"]})
 
 
-def _reported_quantities_by_order_line(session: Session) -> dict[int, int]:
+def _pending_quantities_by_order_line(session: Session) -> dict[int, int]:
     rows = (
         session.query(ShipmentLine.order_line_id, func.sum(ShipmentLine.quantity))
         .join(ShipmentReport, ShipmentReport.id == ShipmentLine.report_id)
         .filter(
             ShipmentLine.order_line_id.is_not(None),
-            ShipmentReport.status.in_(("pending_review", "auto_approved", "approved_after_edit")),
+            ShipmentReport.status == "pending_review",
         )
         .group_by(ShipmentLine.order_line_id)
         .all()
@@ -265,16 +264,17 @@ def _reported_quantities_by_order_line(session: Session) -> dict[int, int]:
 def _formal_order_line_payloads(
     order: SalesOrder,
     balance_by_line_id: dict[int, dict],
-    reported_by_line_id: dict[int, int] | None = None,
+    pending_by_line_id: dict[int, int] | None = None,
 ) -> list[dict]:
     lines = []
-    reported_by_line_id = reported_by_line_id or {}
+    pending_by_line_id = pending_by_line_id or {}
     for line in sorted((row for row in order.lines if row.is_active), key=lambda row: size_sort_key(row.size)):
         balance = balance_by_line_id.get(line.id, {})
         ordered = int(balance.get("ordered", line.quantity))
         approved_shipped = int(balance.get("shipped", 0))
-        shipped = max(approved_shipped, int(reported_by_line_id.get(line.id, 0)))
-        remaining = int(balance.get("remaining", ordered - approved_shipped)) - (shipped - approved_shipped)
+        pending_shipped = int(pending_by_line_id.get(line.id, 0))
+        shipped = approved_shipped + pending_shipped
+        remaining = int(balance.get("remaining", ordered - approved_shipped)) - pending_shipped
         over_shipped = max(int(balance.get("over_shipped", max(0, approved_shipped - ordered))), max(0, shipped - ordered))
         if remaining < 0:
             over_shipped = max(over_shipped, -remaining)
@@ -301,7 +301,7 @@ def _remaining_summary(lines: list[dict]) -> str:
 def formal_order_options_payload(session: Session) -> list[dict]:
     hidden_order_ids = archived_order_ids(session)
     balance_by_line_id = {int(row["order_id"]): row for row in worker_visible_balances(session) if row.get("order_id")}
-    reported_by_line_id = _reported_quantities_by_order_line(session)
+    pending_by_line_id = _pending_quantities_by_order_line(session)
     orders = (
         session.query(SalesOrder)
         .join(Company, Company.id == SalesOrder.company_id)
@@ -313,7 +313,7 @@ def formal_order_options_payload(session: Session) -> list[dict]:
     for order in orders:
         if order.id in hidden_order_ids:
             continue
-        lines = _formal_order_line_payloads(order, balance_by_line_id, reported_by_line_id)
+        lines = _formal_order_line_payloads(order, balance_by_line_id, pending_by_line_id)
         payload.append(
             {
                 "id": order.id,
@@ -337,7 +337,7 @@ def formal_order_lines_payload(session: Session, order_id: int) -> dict:
     if get_open_archive(session, order.id):
         raise ValueError("订单已归档，请先恢复")
     balances = {int(row["order_id"]): row for row in worker_visible_balances(session, company_name=order.company.name) if row.get("order_id")}
-    lines = _formal_order_line_payloads(order, balances, _reported_quantities_by_order_line(session))
+    lines = _formal_order_line_payloads(order, balances, _pending_quantities_by_order_line(session))
     return {
         "order": next(row for row in formal_order_options_payload(session) if row["id"] == order.id),
         "lines": lines,
@@ -1674,6 +1674,7 @@ def create_app() -> FastAPI:
         quantities: list[str] = Form([]),
         note: str = Form(""),
         shipping_method: str = Form(""),
+        trip_mode: str = Form("new"),
         waybill_no: str = Form(""),
         package_count: str = Form(""),
         weight_kg: str = Form(""),
@@ -1703,6 +1704,7 @@ def create_app() -> FastAPI:
                 shipping_method=shipping_method,
                 package_count=package_count,
                 weight_kg=weight_kg,
+                trip_mode=trip_mode,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1718,6 +1720,7 @@ def create_app() -> FastAPI:
         quantities: list[str] = Form([]),
         note: str = Form(""),
         shipping_method: str = Form(""),
+        trip_mode: str = Form("new"),
         waybill_no: str = Form(""),
         package_count: str = Form(""),
         weight_kg: str = Form(""),
@@ -1742,6 +1745,7 @@ def create_app() -> FastAPI:
                 package_count=package_count,
                 weight_kg=weight_kg,
                 pack_date=pack_date,
+                trip_mode=trip_mode,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1937,44 +1941,9 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/mobile/report")
-    async def mobile_submit_report(
-        request: Request,
-        ship_date: str = Form(...),
-        order_id: int | None = Form(None),
-        company_name: str = Form(""),
-        product_name: str = Form(""),
-        style_name: str = Form(""),
-        sizes: list[str] = Form([]),
-        order_line_ids: list[str] = Form([]),
-        quantities: list[str] = Form([]),
-        note: str = Form(""),
-        session: Session = Depends(get_session),
-    ):
-        user = require_user(request, session)
-        if order_id is None and session.query(SalesOrder.id).filter(SalesOrder.status == "active").first():
-            raise HTTPException(status_code=400, detail="请选择订单号")
-        lines = [
-            {"size": size, "quantity": qty, "order_line_id": order_line_ids[index] if index < len(order_line_ids) else ""}
-            for index, (size, qty) in enumerate(zip(sizes, quantities))
-            if size and qty
-        ]
-        try:
-            report = submit_shipment_report(
-                session,
-                user.id,
-                ship_date,
-                company_name,
-                product_name,
-                style_name,
-                lines,
-                [],
-                note,
-                order_id=order_id,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        message = "已自动通过" if report.status == "auto_approved" else f"已提交待审核：{report.review_reason}"
-        return templates.TemplateResponse("mobile/report.html", mobile_report_page_context(request, user, session, message))
+    def mobile_submit_report(request: Request, session: Session = Depends(get_session)):
+        require_user(request, session)
+        raise HTTPException(status_code=410, detail="该提交入口已停用，请先保存包货草稿再提交")
 
     @app.get("/mobile/my-reports")
     def mobile_my_reports(request: Request, page: int = 1, partial: str = "", session: Session = Depends(get_session)):
@@ -2002,7 +1971,6 @@ def create_app() -> FastAPI:
         sizes: list[str] = Form([]),
         quantities: list[str] = Form([]),
         note: str = Form(""),
-        waybill_no: str = Form(""),
         photos: list[UploadFile] = File([]),
         session: Session = Depends(get_session),
     ):
@@ -2075,7 +2043,6 @@ def create_app() -> FastAPI:
         for path in paths:
             session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
         report.note = note.strip()
-        report.waybill_no = waybill_no.strip()
         report.status = "pending_review"
         report.review_reason = "员工提交更新，等待老板审核"
         after_lines = [{"size": line.size, "quantity": line.quantity} for line in report.lines]

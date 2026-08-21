@@ -1310,16 +1310,20 @@ def api_logistics_quick_link(
     session: Session = Depends(get_session),
 ):
     admin = require_admin(request, session)
-    record = quick_link_waybill(
-        session,
-        admin.id,
-        report_id,
-        courier,
-        waybill_no,
-        weight_kg,
-        package_count,
-        note,
-    )
+    try:
+        record = quick_link_waybill(
+            session,
+            admin.id,
+            report_id,
+            courier,
+            waybill_no,
+            weight_kg,
+            package_count,
+            note,
+        )
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _waybill_dict(record)
 
 
@@ -1348,17 +1352,21 @@ def api_logistics_create(
     session: Session = Depends(get_session),
 ):
     admin = require_admin(request, session)
-    record = create_waybill_record(
-        session,
-        admin.id,
-        company_name,
-        ship_date,
-        waybill_no,
-        courier,
-        weight_kg,
-        package_count,
-        note,
-    )
+    try:
+        record = create_waybill_record(
+            session,
+            admin.id,
+            company_name,
+            ship_date,
+            waybill_no,
+            courier,
+            weight_kg,
+            package_count,
+            note,
+        )
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _waybill_dict(record)
 
 
@@ -1392,17 +1400,21 @@ def api_logistics_update(
     session: Session = Depends(get_session),
 ):
     require_admin(request, session)
-    record = update_waybill_record(
-        session,
-        waybill_id,
-        company_name=company_name,
-        ship_date=ship_date,
-        waybill_no=waybill_no,
-        courier=courier,
-        weight_kg=weight_kg,
-        package_count=package_count,
-        note=note,
-    )
+    try:
+        record = update_waybill_record(
+            session,
+            waybill_id,
+            company_name=company_name,
+            ship_date=ship_date,
+            waybill_no=waybill_no,
+            courier=courier,
+            weight_kg=weight_kg,
+            package_count=package_count,
+            note=note,
+        )
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _waybill_dict(record)
 
 

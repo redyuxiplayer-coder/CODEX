@@ -2,9 +2,11 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -305,14 +307,100 @@ def open_session(database_url: str) -> Session:
     return session_factory()
 
 
+class AuditRecoveryError(RuntimeError):
+    pass
+
+
+def sqlite_database_path(database_url: str) -> Path | None:
+    url = make_url(database_url)
+    if url.get_backend_name() != "sqlite" or not url.database or url.database == ":memory:":
+        return None
+    return Path(url.database).expanduser().resolve()
+
+
+def preflight_output_path(database_url: str, path: str) -> Path:
+    output_path = Path(path).expanduser().resolve()
+    database_path = sqlite_database_path(database_url)
+    same_as_database = database_path is not None and output_path == database_path
+    if not same_as_database and database_path is not None and output_path.exists() and database_path.exists():
+        same_as_database = os.path.samefile(output_path, database_path)
+    if same_as_database:
+        raise ValueError("输出路径不能与 SQLite 数据库相同")
+    if output_path.exists():
+        raise FileExistsError(f"输出文件已存在，拒绝覆盖：{output_path}")
+    return output_path
+
+
+def _remove_temp_file(temp_path: Path | None) -> None:
+    if temp_path is not None:
+        temp_path.unlink(missing_ok=True)
+
+
+def _rollback_and_remove_temp(session: Session, temp_path: Path | None) -> None:
+    try:
+        session.rollback()
+    except Exception as exc:
+        print(f"回滚失败，保留原始错误：{exc}", file=sys.stderr)
+    try:
+        _remove_temp_file(temp_path)
+    except Exception as exc:
+        print(f"临时审计文件清理失败：{exc}", file=sys.stderr)
+
+
+def _fsync_directory(directory: Path) -> None:
+    if os.name == "nt":
+        return
+    directory_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def write_temp_json(output_path: Path, payload: dict) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=output_path.parent,
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+    )
+    temp_path = Path(temp_name).resolve()
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        _fsync_directory(output_path.parent)
+    except Exception:
+        _remove_temp_file(temp_path)
+        raise
+    return temp_path
+
+
+def publish_temp_json(temp_path: Path, output_path: Path) -> None:
+    if output_path.exists():
+        raise FileExistsError(f"输出文件已存在，拒绝覆盖：{output_path}")
+    try:
+        os.link(temp_path, output_path)
+    except FileExistsError as exc:
+        raise FileExistsError(f"输出文件已存在，拒绝覆盖：{output_path}") from exc
+    _fsync_directory(output_path.parent)
+    temp_path.unlink()
+    _fsync_directory(output_path.parent)
+
+
 def write_json(path: str | None, payload: dict) -> None:
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False)
-    if path:
-        output_path = Path(path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(text, encoding="utf-8")
-    else:
-        print(text)
+    if not path:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False))
+        return
+    output_path = Path(path).expanduser().resolve()
+    temp_path = write_temp_json(output_path, payload)
+    try:
+        publish_temp_json(temp_path, output_path)
+    except Exception:
+        _remove_temp_file(temp_path)
+        raise
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -343,14 +431,32 @@ def main(argv: list[str] | None = None) -> int:
     database_url = resolve_database_url(args.database, args.database_url_env)
     if args.apply and not database_url.startswith("sqlite") and not args.confirm_production_backup:
         raise ValueError("Non-SQLite apply requires --confirm-production-backup")
+    output_path = preflight_output_path(database_url, args.audit if args.apply else args.preview)
     session = open_session(database_url)
     try:
         if args.apply:
-            payload = apply_unique_bindings(session)
-            write_json(args.audit, payload)
+            temp_path = None
+            try:
+                payload = apply_unique_bindings(session, commit=False)
+                temp_path = write_temp_json(output_path, payload)
+            except Exception:
+                _rollback_and_remove_temp(session, temp_path)
+                raise
+            try:
+                session.commit()
+            except Exception:
+                _rollback_and_remove_temp(session, temp_path)
+                raise
+            try:
+                publish_temp_json(temp_path, output_path)
+            except Exception as exc:
+                recovery_path = temp_path.resolve() if temp_path.exists() else output_path.resolve()
+                message = f"数据库已提交，但审计文件发布失败；审计文件恢复路径：{recovery_path}"
+                print(message, file=sys.stderr)
+                raise AuditRecoveryError(message) from exc
         else:
             payload = classify_unbound_lines(session)
-            write_json(args.preview, payload)
+            write_json(str(output_path), payload)
     finally:
         session.close()
     return 0

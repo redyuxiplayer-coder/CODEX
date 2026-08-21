@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import create_app
-from app.models import Company, PackingDraft, SalesOrderArchive, Spu, User
+from app.models import Company, PackingDraft, SalesOrderArchive, ShipmentLine, ShipmentReport, Spu, User
 from app.main import formal_order_lines_payload, formal_order_options_payload
 from app.services.sales_orders import create_sales_order
 from app.services.packing_drafts import create_packing_draft, submit_packing_draft
@@ -117,6 +117,24 @@ def test_packing_draft_rejects_line_from_another_order(db_session):
         )
 
 
+def test_shipment_report_rejects_empty_cleaned_lines(db_session):
+    worker, order, _ = _formal_orders(db_session)
+
+    with pytest.raises(ValueError, match="至少填写一条"):
+        submit_shipment_report(
+            db_session,
+            user_id=worker.id,
+            ship_date="2026-08-09",
+            company_name="",
+            product_name="",
+            style_name="",
+            lines=[{"size": "S", "quantity": "0", "order_line_id": order.lines[0].id}],
+            order_id=order.id,
+        )
+
+    assert db_session.query(ShipmentReport).count() == 0
+
+
 def test_mobile_form_lists_order_number_date_color_and_only_its_sizes(db_session):
     _worker, first, second = _formal_orders(db_session)
 
@@ -152,6 +170,40 @@ def test_order_option_contains_remaining_summary(db_session):
     option = next(row for row in formal_order_options_payload(db_session) if row["id"] == order.id)
 
     assert option["remaining_summary"] == "S98 / M63"
+
+
+def test_order_summary_adds_pending_direct_quantity_to_approved_historical_allocation(db_session):
+    worker, order, _ = _formal_orders(db_session)
+    historical = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-08-08",
+        company_name=order.company.name,
+        product_name=order.product_name,
+        style_name=order.style_name,
+        status="auto_approved",
+    )
+    db_session.add(historical)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=historical.id, order_line_id=None, size="S", quantity=30))
+    db_session.commit()
+    pending = submit_shipment_report(
+        db_session,
+        user_id=worker.id,
+        ship_date="2026-08-10",
+        company_name="",
+        product_name="",
+        style_name="",
+        lines=[{"size": "S", "quantity": 20, "order_line_id": order.lines[0].id}],
+        order_id=order.id,
+    )
+
+    payload = formal_order_lines_payload(db_session, order.id)
+    size_s = next(line for line in payload["lines"] if line["size"] == "S")
+
+    assert pending.status == "pending_review"
+    assert size_s["shipped"] == 50
+    assert size_s["remaining"] == 50
+    assert payload["order"]["remaining_summary"] == "S50 / M80"
 
 
 def test_worker_mobile_form_submits_one_selected_order(db_session):
@@ -298,11 +350,36 @@ def test_mobile_posts_return_controlled_error_for_archived_order(db_session):
         "weight_kg": "1.5",
     }
 
-    direct = client.post("/mobile/report", data=data)
     new_draft = client.post("/mobile/today/new", data=data)
     submit_draft = client.post(f"/mobile/today/{draft.id}/submit")
 
-    for response in (direct, new_draft, submit_draft):
+    for response in (new_draft, submit_draft):
         assert response.status_code == 400
         assert response.json()["detail"] == "订单已归档，请先恢复"
+    app.dependency_overrides.clear()
+
+
+def test_legacy_mobile_report_post_is_retired_before_report_creation(db_session):
+    worker, order, _ = _formal_orders(db_session)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        "/mobile/report",
+        data={
+            "ship_date": "2026-08-09",
+            "order_id": str(order.id),
+            "order_line_ids": [str(order.lines[0].id)],
+            "sizes": ["S"],
+            "quantities": ["20"],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "该提交入口已停用，请先保存包货草稿再提交"
+    assert db_session.query(ShipmentReport).count() == 0
+    assert db_session.query(PackingDraft).count() == 0
     app.dependency_overrides.clear()

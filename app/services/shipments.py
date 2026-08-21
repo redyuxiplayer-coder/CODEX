@@ -187,6 +187,8 @@ def submit_shipment_report(
         for line in lines
         if str(line.get("size", "")).strip() and parse_quantity(line.get("quantity")) > 0
     ]
+    if not cleaned_lines:
+        raise ValueError("至少填写一条正确的尺码数量")
     selected_order = (
         session.query(SalesOrder)
         .filter(SalesOrder.id == int(order_id))

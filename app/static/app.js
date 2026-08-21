@@ -260,7 +260,7 @@ async function updateSizes() {
 
 function getReportDraftKey(form, packDateOverride) {
   if (form.dataset.autosaveKey === "new") {
-    const packDate = (packDateOverride ?? form.querySelector('[name="pack_date"]')?.value || "").trim();
+    const packDate = (packDateOverride ?? (form.querySelector('[name="pack_date"]')?.value || "")).trim();
     return `zy-report-draft:new:${packDate}`;
   }
   return `zy-report-draft:${form.dataset.autosaveKey || "new"}`;

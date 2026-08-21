@@ -1649,6 +1649,64 @@ def test_mobile_route_create_huolala_draft_without_waybill_no(db_session):
     app.dependency_overrides.clear()
 
 
+def test_mobile_huolala_route_requires_explicit_existing_trip_provenance(db_session):
+    from app.db import get_session
+    from app.models import PackingDraft, User
+    from app.services.orders import create_order_line
+
+    worker = User(username="route_huolala_provenance", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_order_line(db_session, "源兴发", "小红帽", "小红帽男款", "L", 500)
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    response = client.post(
+        "/mobile/today/new",
+        data={
+            "pack_date": "2026-07-18",
+            "company_name": "源兴发",
+            "product_name": "小红帽",
+            "style_name": "小红帽男款",
+            "sizes": ["L"],
+            "quantities": ["225"],
+            "shipping_method": "huolala",
+            "trip_mode": "existing",
+            "waybill_no": "",
+            "package_count": "2",
+            "weight_kg": "11.5",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "同公司同日期" in response.json()["detail"]
+    assert db_session.query(PackingDraft).count() == 0
+    app.dependency_overrides.clear()
+
+
+def test_mobile_report_form_submits_trip_mode_under_one_server_field(db_session):
+    from app.db import get_session
+    from app.models import User
+
+    worker = User(username="route_trip_mode_field", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    page = client.get("/mobile/report")
+
+    assert page.status_code == 200
+    assert page.text.count('name="trip_mode"') >= 2
+    assert 'name="trip_mode_new"' not in page.text
+    app.dependency_overrides.clear()
+
+
 def test_mobile_report_submit_script_does_not_reenter_submit_event():
     script = (BASE_DIR / "app" / "static" / "app.js").read_text(encoding="utf-8")
 
@@ -2370,6 +2428,7 @@ def test_mobile_my_reports_shows_update_form_without_photo_delete(db_session):
     assert 'name="line_ids"' in page.text
     assert 'name="quantities"' in page.text
     assert 'name="photos"' in page.text
+    assert 'name="waybill_no"' not in page.text
     assert "提交更新给老板审核" in page.text
     assert "删除照片" not in page.text
     assert "remove_photo" not in page.text

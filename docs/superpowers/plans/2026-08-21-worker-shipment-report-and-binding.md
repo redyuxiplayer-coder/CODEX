@@ -418,4 +418,3 @@ python E:/CODEX/scripts/lint-wiki.py
 ```
 
 Expected: 0 errors。
-

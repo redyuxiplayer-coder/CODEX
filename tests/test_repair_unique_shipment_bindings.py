@@ -120,6 +120,64 @@ def _create_file_session(database_path: Path):
     return Session()
 
 
+def test_classification_normalizes_persisted_alias_whitespace(db_session):
+    from app.models import Company, ProductAlias, Spu, User
+
+    repair = _load_repair_module()
+    company = Company(name="源兴发", code="AT", next_order_sequence=1)
+    spu = Spu(code="ATS", product_name="啦啦队", style_name="僵尸啦啦队")
+    admin = User(username="alias_trim_admin", display_name="老板", password_hash="x", role="admin", is_active=True)
+    db_session.add_all([company, spu, admin])
+    db_session.flush()
+    db_session.add_all(
+        [
+            ProductAlias(
+                company_name=" 源兴发 ",
+                alias_product=" 啦啦队旧名 ",
+                alias_style=" 僵尸啦啦队旧版 ",
+                canonical_product=" 已停用旧归一 ",
+                canonical_style=" 已停用旧款式 ",
+                is_active=True,
+            ),
+            ProductAlias(
+                company_name=" 源兴发 ",
+                alias_product=" 啦啦队旧名 ",
+                alias_style=" 僵尸啦啦队旧版 ",
+                canonical_product=" 啦啦队 ",
+                canonical_style=" 僵尸啦啦队 ",
+                is_active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+    order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "红色",
+        "RED",
+        "2026-08-01",
+        [{"size": "S", "quantity": 100}],
+    )
+    report = ShipmentReport(
+        user_id=admin.id,
+        ship_date="2026-08-10",
+        company_name=" 源兴发 ",
+        product_name=" 啦啦队旧名 ",
+        style_name=" 僵尸啦啦队旧版 ",
+        status="auto_approved",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=report.id, order_line_id=None, size=" S ", quantity=12))
+    db_session.commit()
+
+    classification = repair.classify_unbound_lines(db_session)
+
+    assert classification["summary"] == {"scanned": 1, "unique": 1, "ambiguous": 0, "unmatched": 0}
+    assert classification["unique"][0]["order_line_id"] == order.lines[0].id
+
+
 def _seed_recompute_fixture(session):
     from app.models import Company, Spu, User
 
@@ -420,3 +478,280 @@ def test_non_sqlite_apply_requires_explicit_backup_confirmation_before_opening_s
         ]
     ) == 0
     assert opened["count"] == 1
+
+
+@pytest.mark.parametrize(
+    "action_args",
+    [
+        lambda path: ["--preview", str(path)],
+        lambda path: ["--apply", "--audit", str(path)],
+    ],
+)
+def test_cli_rejects_output_path_equal_to_sqlite_database_before_opening(monkeypatch, tmp_path: Path, action_args):
+    repair = _load_repair_module()
+    database_path = tmp_path / "repair.sqlite"
+    database_path.write_bytes(b"database-sentinel")
+    opened = {"count": 0}
+
+    def fake_open_session(_database_url):
+        opened["count"] += 1
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr(repair, "open_session", fake_open_session)
+
+    with pytest.raises(ValueError, match="输出路径不能与 SQLite 数据库相同"):
+        repair.main(["--database", str(database_path), *action_args(database_path)])
+
+    assert opened["count"] == 0
+    assert database_path.read_bytes() == b"database-sentinel"
+
+
+def test_cli_rejects_collision_for_explicit_sqlite_driver_url_before_opening(monkeypatch, tmp_path: Path):
+    repair = _load_repair_module()
+    database_path = (tmp_path / "repair.sqlite").resolve()
+    opened = {"count": 0}
+
+    def fake_open_session(_database_url):
+        opened["count"] += 1
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr(repair, "open_session", fake_open_session)
+
+    with pytest.raises(ValueError, match="输出路径不能与 SQLite 数据库相同"):
+        repair.main(
+            [
+                "--database",
+                f"sqlite+pysqlite:///{database_path.as_posix()}",
+                "--preview",
+                str(database_path),
+            ]
+        )
+
+    assert opened["count"] == 0
+
+
+@pytest.mark.parametrize(
+    "action_args",
+    [
+        lambda path: ["--preview", str(path)],
+        lambda path: ["--apply", "--audit", str(path)],
+    ],
+)
+def test_cli_refuses_to_overwrite_existing_output_before_opening(monkeypatch, tmp_path: Path, action_args):
+    repair = _load_repair_module()
+    database_path = tmp_path / "repair.sqlite"
+    output_path = tmp_path / "existing.json"
+    output_path.write_text("keep-me", encoding="utf-8")
+    opened = {"count": 0}
+
+    def fake_open_session(_database_url):
+        opened["count"] += 1
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr(repair, "open_session", fake_open_session)
+
+    with pytest.raises(FileExistsError, match="输出文件已存在"):
+        repair.main(["--database", str(database_path), *action_args(output_path)])
+
+    assert opened["count"] == 0
+    assert output_path.read_text(encoding="utf-8") == "keep-me"
+
+
+def test_apply_write_failure_rolls_back_before_database_commit(monkeypatch, tmp_path: Path):
+    repair = _load_repair_module()
+    database_path = tmp_path / "repair.sqlite"
+    audit_path = tmp_path / "audit.json"
+    session = _create_file_session(database_path)
+    try:
+        _seed_binding_fixture(session)
+    finally:
+        session.close()
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(repair, "write_temp_json", fail_write, raising=False)
+
+    with pytest.raises(OSError, match="disk full"):
+        repair.main(["--database", str(database_path), "--apply", "--audit", str(audit_path)])
+
+    check = _create_file_session(database_path)
+    try:
+        assert check.query(ShipmentLine).filter(ShipmentLine.order_line_id.is_not(None)).count() == 0
+    finally:
+        check.close()
+    assert not audit_path.exists()
+
+
+def test_apply_commit_failure_removes_temporary_audit(monkeypatch, tmp_path: Path):
+    repair = _load_repair_module()
+    audit_path = tmp_path / "audit.json"
+    calls = {"commit_arg": None, "rollback": 0, "close": 0}
+
+    class CommitFailSession:
+        def commit(self):
+            raise RuntimeError("commit failed")
+
+        def rollback(self):
+            calls["rollback"] += 1
+
+        def close(self):
+            calls["close"] += 1
+
+    def fake_apply(_session, *, commit=True):
+        calls["commit_arg"] = commit
+        return {"bound_line_count": 1}
+
+    monkeypatch.setattr(repair, "open_session", lambda _url: CommitFailSession())
+    monkeypatch.setattr(repair, "apply_unique_bindings", fake_apply)
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        repair.main(["--database", str(tmp_path / "repair.sqlite"), "--apply", "--audit", str(audit_path)])
+
+    assert calls == {"commit_arg": False, "rollback": 1, "close": 1}
+    assert not audit_path.exists()
+    assert list(tmp_path.glob(".audit.json.*.tmp")) == []
+
+
+def test_apply_commit_and_rollback_failure_preserves_commit_error_and_removes_temp(monkeypatch, tmp_path: Path, capsys):
+    repair = _load_repair_module()
+    audit_path = tmp_path / "audit.json"
+    calls = {"rollback": 0, "close": 0}
+
+    class CommitAndRollbackFailSession:
+        def commit(self):
+            raise RuntimeError("commit failed")
+
+        def rollback(self):
+            calls["rollback"] += 1
+            raise RuntimeError("rollback failed")
+
+        def close(self):
+            calls["close"] += 1
+
+    monkeypatch.setattr(repair, "open_session", lambda _url: CommitAndRollbackFailSession())
+    monkeypatch.setattr(
+        repair,
+        "apply_unique_bindings",
+        lambda _session, *, commit=True: {"bound_line_count": 1},
+    )
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        repair.main(["--database", str(tmp_path / "repair.sqlite"), "--apply", "--audit", str(audit_path)])
+
+    assert calls == {"rollback": 1, "close": 1}
+    assert not audit_path.exists()
+    assert list(tmp_path.glob(".audit.json.*.tmp")) == []
+    assert "rollback failed" in capsys.readouterr().err
+
+
+def test_apply_fsyncs_temporary_audit_directory_before_database_commit(monkeypatch, tmp_path: Path):
+    repair = _load_repair_module()
+    audit_path = tmp_path / "audit.json"
+    events = []
+
+    class RecordingSession:
+        def commit(self):
+            events.append("commit")
+
+        def rollback(self):
+            events.append("rollback")
+
+        def close(self):
+            events.append("close")
+
+    monkeypatch.setattr(repair, "open_session", lambda _url: RecordingSession())
+    monkeypatch.setattr(repair, "apply_unique_bindings", lambda _session, *, commit=True: {"bound_line_count": 0})
+    monkeypatch.setattr(repair, "_fsync_directory", lambda _directory: events.append("fsync_directory"))
+
+    assert repair.main(["--database", str(tmp_path / "repair.sqlite"), "--apply", "--audit", str(audit_path)]) == 0
+
+    assert events == ["fsync_directory", "commit", "fsync_directory", "fsync_directory", "close"]
+    assert audit_path.exists()
+
+
+def test_publish_refuses_racing_destination_without_overwrite(monkeypatch, tmp_path: Path):
+    repair = _load_repair_module()
+    temp_path = tmp_path / ".audit.json.pending.tmp"
+    output_path = tmp_path / "audit.json"
+    temp_path.write_text("transaction-audit", encoding="utf-8")
+    real_link = repair.os.link
+
+    def competing_link(source, target):
+        Path(target).write_text("competitor-audit", encoding="utf-8")
+        return real_link(source, target)
+
+    monkeypatch.setattr(repair.os, "link", competing_link)
+
+    with pytest.raises(FileExistsError, match="拒绝覆盖"):
+        repair.publish_temp_json(temp_path, output_path)
+
+    assert output_path.read_text(encoding="utf-8") == "competitor-audit"
+    assert temp_path.read_text(encoding="utf-8") == "transaction-audit"
+
+
+def test_apply_rename_failure_preserves_recovery_audit_after_commit(monkeypatch, tmp_path: Path, capsys):
+    repair = _load_repair_module()
+    database_path = tmp_path / "repair.sqlite"
+    audit_path = tmp_path / "audit.json"
+    session = _create_file_session(database_path)
+    try:
+        _seed_binding_fixture(session)
+    finally:
+        session.close()
+
+    def fail_replace(_source, _target):
+        raise OSError("rename failed")
+
+    monkeypatch.setattr(repair.os, "link", fail_replace)
+
+    with pytest.raises(RuntimeError, match="审计文件恢复路径") as exc_info:
+        repair.main(["--database", str(database_path), "--apply", "--audit", str(audit_path)])
+
+    recovery_files = list(tmp_path.glob(".audit.json.*.tmp"))
+    assert len(recovery_files) == 1
+    recovery_path = recovery_files[0].resolve()
+    assert str(recovery_path) in str(exc_info.value)
+    assert str(recovery_path) in capsys.readouterr().err
+    assert json.loads(recovery_path.read_text(encoding="utf-8"))["bound_line_count"] == 2
+    assert not audit_path.exists()
+
+    check = _create_file_session(database_path)
+    try:
+        assert check.query(ShipmentLine).filter(ShipmentLine.order_line_id.is_not(None)).count() == 2
+    finally:
+        check.close()
+
+
+def test_apply_directory_sync_failure_reports_published_audit_after_commit(monkeypatch, tmp_path: Path, capsys):
+    repair = _load_repair_module()
+    database_path = tmp_path / "repair.sqlite"
+    audit_path = tmp_path / "audit.json"
+    session = _create_file_session(database_path)
+    try:
+        _seed_binding_fixture(session)
+    finally:
+        session.close()
+
+    sync_calls = {"count": 0}
+
+    def fail_directory_sync(_directory):
+        sync_calls["count"] += 1
+        if sync_calls["count"] == 3:
+            raise OSError("directory sync failed")
+
+    monkeypatch.setattr(repair, "_fsync_directory", fail_directory_sync)
+
+    with pytest.raises(repair.AuditRecoveryError, match="审计文件恢复路径") as exc_info:
+        repair.main(["--database", str(database_path), "--apply", "--audit", str(audit_path)])
+
+    assert audit_path.exists()
+    assert str(audit_path.resolve()) in str(exc_info.value)
+    assert str(audit_path.resolve()) in capsys.readouterr().err
+    assert list(tmp_path.glob(".audit.json.*.tmp")) == []
+
+    check = _create_file_session(database_path)
+    try:
+        assert check.query(ShipmentLine).filter(ShipmentLine.order_line_id.is_not(None)).count() == 2
+    finally:
+        check.close()

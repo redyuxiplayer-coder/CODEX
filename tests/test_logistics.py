@@ -10,6 +10,7 @@ from app.services.logistics import (
     list_waybill_records,
     update_waybill_record,
 )
+from app.services.packing_drafts import create_packing_draft
 
 
 def _admin(db_session) -> User:
@@ -141,3 +142,129 @@ def test_logistics_api_create_list_link(db_session):
     assert removed.status_code == 200
     detail = client.get(f"/api/v1/logistics/{record_id}")
     assert len(detail.json()["reports"]) == 1
+
+
+def test_logistics_create_api_returns_400_for_incompatible_draft_identifier(db_session):
+    admin = _admin(db_session)
+    worker = User(username="logistics_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "广东茉莉",
+        "小红帽",
+        "小红帽女款",
+        [{"size": "M", "quantity": 10}],
+        waybill_no="API-META-CREATE",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=5,
+    )
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app, raise_server_exceptions=False)
+    client.cookies.set("zy_user_id", str(admin.id))
+
+    response = client.post(
+        "/api/v1/logistics",
+        data={
+            "company_name": "广东茉莉",
+            "ship_date": "2026-07-17",
+            "waybill_no": "API-META-CREATE",
+            "courier": "中通",
+            "weight_kg": "5",
+            "package_count": "3",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "同一物流识别号的包裹件数必须一致"
+    assert db_session.query(WaybillRecord).filter_by(waybill_no="API-META-CREATE").count() == 0
+
+
+def test_logistics_update_api_returns_400_without_mutating_record(db_session):
+    admin = _admin(db_session)
+    worker = User(username="logistics_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    create_packing_draft(
+        db_session,
+        worker.id,
+        "2026-07-17",
+        "广东茉莉",
+        "小红帽",
+        "小红帽女款",
+        [{"size": "M", "quantity": 10}],
+        waybill_no="API-META-UPDATE",
+        shipping_method="courier",
+        package_count=2,
+        weight_kg=5,
+    )
+    record = create_waybill_record(
+        db_session,
+        admin.id,
+        "广东茉莉",
+        "2026-07-17",
+        "API-META-ORIGINAL",
+        weight_kg=1,
+        package_count=1,
+    )
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app, raise_server_exceptions=False)
+    client.cookies.set("zy_user_id", str(admin.id))
+
+    response = client.post(
+        f"/api/v1/logistics/{record.id}/update",
+        data={
+            "company_name": "广东茉莉",
+            "ship_date": "2026-07-17",
+            "waybill_no": "API-META-UPDATE",
+            "courier": "中通",
+            "weight_kg": "5",
+            "package_count": "3",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "同一物流识别号的包裹件数必须一致"
+    db_session.refresh(record)
+    assert record.waybill_no == "API-META-ORIGINAL"
+    assert record.package_count == 1
+
+
+def test_logistics_quick_link_api_returns_400_without_linking_report(db_session):
+    admin = _admin(db_session)
+    report = _reports(db_session, admin)[0]
+    create_waybill_record(
+        db_session,
+        admin.id,
+        report.company_name,
+        report.ship_date,
+        "API-META-QUICK",
+        courier="顺丰",
+        weight_kg=5,
+        package_count=2,
+    )
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app, raise_server_exceptions=False)
+    client.cookies.set("zy_user_id", str(admin.id))
+
+    response = client.post(
+        "/api/v1/logistics/quick-link",
+        data={
+            "report_id": str(report.id),
+            "courier": "顺丰",
+            "waybill_no": "API-META-QUICK",
+            "weight_kg": "5",
+            "package_count": "3",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "同一物流识别号的包裹件数必须一致"
+    db_session.refresh(report)
+    assert report.waybill_id is None

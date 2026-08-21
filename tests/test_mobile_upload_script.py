@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 
 def test_mobile_upload_submit_waits_for_photo_compression():
@@ -8,6 +9,17 @@ def test_mobile_upload_submit_waits_for_photo_compression():
     assert 'input.dataset.compressing === "1"' in script
     assert "HTMLFormElement.prototype.submit.call(form)" in script
     assert "form.requestSubmit" not in script
+
+
+def test_mobile_app_javascript_passes_node_syntax_check():
+    result = subprocess.run(
+        ["node", "--check", "app/static/app.js"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_mobile_upload_compresses_smaller_and_reports_progress():

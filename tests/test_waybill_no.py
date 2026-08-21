@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.db import get_session
 from app.main import create_app
 from app.models import ShipmentReport, User
+from app.services.logistics import create_waybill_record
 from app.services.orders import create_order_line
 from app.services.packing_drafts import create_packing_draft, submit_packing_draft
 
@@ -86,15 +87,37 @@ def test_admin_shipments_filters_and_edits_waybill(db_session):
     assert report_a.waybill_no == "YT999"
 
 
-def test_worker_my_reports_update_saves_waybill(db_session):
-    _admin, worker = _users(db_session)
+def test_worker_my_reports_update_cannot_change_or_relink_waybill(db_session):
+    admin, worker = _users(db_session)
     create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100)
+    original_waybill = create_waybill_record(
+        db_session,
+        admin.id,
+        "源兴发",
+        "2026-08-04",
+        "YT-ORIGINAL",
+        courier="快递",
+        package_count=1,
+        weight_kg=2,
+    )
+    other_waybill = create_waybill_record(
+        db_session,
+        admin.id,
+        "源兴发",
+        "2026-08-04",
+        "YT-OTHER",
+        courier="快递",
+        package_count=1,
+        weight_kg=2,
+    )
     report = ShipmentReport(
         user_id=worker.id,
         ship_date="2026-08-04",
         company_name="源兴发",
         product_name="裁判",
         style_name="圆领裁判",
+        waybill_no=original_waybill.waybill_no,
+        waybill_id=original_waybill.id,
         status="auto_approved",
     )
     db_session.add(report)
@@ -108,11 +131,13 @@ def test_worker_my_reports_update_saves_waybill(db_session):
             "sizes": ["M"],
             "quantities": ["10"],
             "note": "",
-            "waybill_no": "YT555",
+            "waybill_no": other_waybill.waybill_no,
+            "waybill_id": str(other_waybill.id),
         },
         follow_redirects=False,
     )
     assert response.status_code == 303
     db_session.refresh(report)
-    assert report.waybill_no == "YT555"
+    assert report.waybill_no == "YT-ORIGINAL"
+    assert report.waybill_id == original_waybill.id
     assert report.status == "pending_review"

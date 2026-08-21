@@ -1,6 +1,9 @@
+import math
+
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models import ShipmentReport, WaybillRecord
+from app.models import PackingDraft, ShipmentReport, WaybillRecord
 from app.services.orders import APPROVED_STATUSES
 
 
@@ -26,6 +29,104 @@ def shipping_method_label(shipping_method: str) -> str:
     raise ValueError("请选择发货方式")
 
 
+def waybill_shipping_method(courier: str) -> str:
+    return "huolala" if (courier or "").strip() == "货拉拉" else "courier"
+
+
+def lock_logistics_identifier(session: Session, waybill_no: str) -> None:
+    normalized_waybill = (waybill_no or "").strip()
+    if not normalized_waybill:
+        return
+    bind = session.get_bind()
+    if bind.dialect.name == "postgresql":
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(210821, hashtext(:identifier))"),
+            {"identifier": normalized_waybill},
+        )
+
+
+def validate_logistics_identifier_channel(
+    session: Session,
+    *,
+    waybill_no: str,
+    shipping_method: str,
+    exclude_waybill_id: int | None = None,
+) -> None:
+    normalized_waybill = (waybill_no or "").strip()
+    if not normalized_waybill:
+        return
+    for draft in session.query(PackingDraft).filter(PackingDraft.waybill_no == normalized_waybill).all():
+        if draft.shipping_method != shipping_method:
+            raise ValueError("物流识别号不能跨发货方式复用")
+    records = session.query(WaybillRecord).filter(WaybillRecord.waybill_no == normalized_waybill)
+    if exclude_waybill_id is not None:
+        records = records.filter(WaybillRecord.id != int(exclude_waybill_id))
+    for record in records.all():
+        if waybill_shipping_method(record.courier) != shipping_method:
+            raise ValueError("物流识别号不能跨发货方式复用")
+
+
+def _normalized_waybill_weight(value) -> float:
+    try:
+        weight = float(value or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("请填写正确的总重量") from exc
+    if not math.isfinite(weight) or weight < 0:
+        raise ValueError("请填写正确的总重量")
+    return weight
+
+
+def validate_logistics_identifier_compatibility(
+    session: Session,
+    *,
+    company_name: str,
+    ship_date: str,
+    waybill_no: str,
+    shipping_method: str,
+    package_count: int,
+    weight_kg: float,
+    exclude_draft_id: int | None = None,
+    exclude_waybill_id: int | None = None,
+) -> None:
+    normalized_waybill = (waybill_no or "").strip()
+    normalized_company = (company_name or "").strip()
+    normalized_ship_date = (ship_date or "").strip()
+    normalized_package_count = int(package_count or 0)
+    normalized_weight = _normalized_waybill_weight(weight_kg)
+    if not normalized_waybill:
+        return
+    validate_logistics_identifier_channel(
+        session,
+        waybill_no=normalized_waybill,
+        shipping_method=shipping_method,
+        exclude_waybill_id=exclude_waybill_id,
+    )
+    drafts = session.query(PackingDraft).filter(PackingDraft.waybill_no == normalized_waybill)
+    if exclude_draft_id is not None:
+        drafts = drafts.filter(PackingDraft.id != int(exclude_draft_id))
+    sources = [
+        (draft.company_name, draft.pack_date, draft.package_count, draft.weight_kg)
+        for draft in drafts.all()
+    ]
+    records = session.query(WaybillRecord).filter(WaybillRecord.waybill_no == normalized_waybill)
+    if exclude_waybill_id is not None:
+        records = records.filter(WaybillRecord.id != int(exclude_waybill_id))
+    sources.extend(
+        (record.company_name, record.ship_date, record.package_count, record.weight_kg)
+        for record in records.all()
+    )
+    for source_company, source_date, source_package_count, source_weight_kg in sources:
+        if (source_company or "").strip() != normalized_company:
+            raise ValueError("同一物流识别号的公司必须一致")
+        if (source_date or "").strip() != normalized_ship_date:
+            raise ValueError("同一物流识别号的发货日期必须一致")
+        if int(source_package_count or 0) != normalized_package_count:
+            raise ValueError("同一物流识别号的包裹件数必须一致")
+        source_weight = float(source_weight_kg or 0)
+        if not math.isfinite(source_weight) or abs(source_weight - normalized_weight) > 1e-6:
+            raise ValueError("同一物流识别号的总重量必须一致")
+
+
 def matching_waybill_or_none(
     session: Session,
     *,
@@ -34,6 +135,7 @@ def matching_waybill_or_none(
     waybill_no: str,
     package_count: int,
     weight_kg: float,
+    shipping_method: str | None = None,
 ) -> WaybillRecord | None:
     normalized_waybill = (waybill_no or "").strip()
     if not normalized_waybill:
@@ -41,14 +143,15 @@ def matching_waybill_or_none(
     record = session.query(WaybillRecord).filter_by(waybill_no=normalized_waybill).one_or_none()
     if record is None:
         return None
-    if record.company_name != (company_name or "").strip():
-        raise ValueError("同一物流识别号的公司必须一致")
-    if record.ship_date != (ship_date or "").strip():
-        raise ValueError("同一物流识别号的发货日期必须一致")
-    if int(record.package_count or 0) != int(package_count or 0):
-        raise ValueError("同一物流识别号的包裹件数必须一致")
-    if abs(float(record.weight_kg or 0) - float(weight_kg or 0)) > 1e-6:
-        raise ValueError("同一物流识别号的总重量必须一致")
+    validate_logistics_identifier_compatibility(
+        session,
+        company_name=company_name,
+        ship_date=ship_date,
+        waybill_no=normalized_waybill,
+        shipping_method=shipping_method or waybill_shipping_method(record.courier),
+        package_count=package_count,
+        weight_kg=weight_kg,
+    )
     return record
 
 
@@ -75,12 +178,25 @@ def create_waybill_record(
     note: str = "",
     commit: bool = True,
 ) -> WaybillRecord:
+    normalized_waybill = (waybill_no or "").strip()
+    normalized_courier = (courier or "中通").strip()
+    normalized_weight = _normalized_waybill_weight(weight_kg)
+    lock_logistics_identifier(session, normalized_waybill)
+    validate_logistics_identifier_compatibility(
+        session,
+        company_name=company_name,
+        ship_date=ship_date,
+        waybill_no=normalized_waybill,
+        shipping_method=waybill_shipping_method(normalized_courier),
+        package_count=package_count,
+        weight_kg=normalized_weight,
+    )
     record = WaybillRecord(
         company_name=(company_name or "").strip(),
         ship_date=(ship_date or "").strip(),
-        waybill_no=(waybill_no or "").strip(),
-        courier=(courier or "中通").strip(),
-        weight_kg=float(weight_kg or 0),
+        waybill_no=normalized_waybill,
+        courier=normalized_courier,
+        weight_kg=normalized_weight,
         package_count=int(package_count or 0),
         note=(note or "").strip(),
         created_by=int(user_id),
@@ -105,21 +221,45 @@ def update_waybill_record(
     package_count: int | None = None,
     note: str | None = None,
 ) -> WaybillRecord:
-    record = session.get(WaybillRecord, waybill_id)
+    record = (
+        session.query(WaybillRecord)
+        .filter(WaybillRecord.id == int(waybill_id))
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
     if record is None:
         raise ValueError("快递单不存在")
+    normalized_waybill = (waybill_no if waybill_no is not None else record.waybill_no or "").strip()
+    normalized_courier = (courier if courier is not None else record.courier or "中通").strip()
+    normalized_company = (company_name if company_name is not None else record.company_name or "").strip()
+    normalized_ship_date = (ship_date if ship_date is not None else record.ship_date or "").strip()
+    normalized_package_count = int(package_count if package_count is not None else record.package_count or 0)
+    normalized_weight = _normalized_waybill_weight(weight_kg if weight_kg is not None else record.weight_kg)
+    for identifier in sorted({value for value in [(record.waybill_no or "").strip(), normalized_waybill] if value}):
+        lock_logistics_identifier(session, identifier)
+    validate_logistics_identifier_compatibility(
+        session,
+        company_name=normalized_company,
+        ship_date=normalized_ship_date,
+        waybill_no=normalized_waybill,
+        shipping_method=waybill_shipping_method(normalized_courier),
+        package_count=normalized_package_count,
+        weight_kg=normalized_weight,
+        exclude_waybill_id=record.id,
+    )
     if company_name is not None:
-        record.company_name = company_name.strip()
+        record.company_name = normalized_company
     if ship_date is not None:
-        record.ship_date = ship_date.strip()
+        record.ship_date = normalized_ship_date
     if waybill_no is not None:
-        record.waybill_no = waybill_no.strip()
+        record.waybill_no = normalized_waybill
     if courier is not None:
-        record.courier = (courier or "中通").strip()
+        record.courier = normalized_courier
     if weight_kg is not None:
-        record.weight_kg = float(weight_kg)
+        record.weight_kg = normalized_weight
     if package_count is not None:
-        record.package_count = int(package_count)
+        record.package_count = normalized_package_count
     if note is not None:
         record.note = note.strip()
     session.commit()
