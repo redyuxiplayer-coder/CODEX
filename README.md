@@ -38,11 +38,11 @@
 ### 手机端（/mobile）
 
 - 发货上报（`/mobile/report`）：
-  - 员工可直接填写发货日期，日期必填且不能晚于当天
+  - 员工可直接填写发货日期，日期必填且不能晚于服务器当天
   - 订单选择器支持公司、款式/颜色、订单号筛选；下拉文案显示 `订单号｜下单日期｜颜色｜还差摘要`
   - 草稿列表展示全部“未提交包货草稿”，不再只看当天
-  - 物流字段为必填：发货方式（`courier` / `huolala`）、运单/车次号、件数、总重量
-  - `huolala` 可留空新建车次号，也可复用同公司 + 同发货日期的已有车次；复用时件数和重量会沿用已有记录
+  - 物流字段按渠道校验：`courier` 必须填写真实运单号；`huolala` 新建时可留空自动生成车次号，复用已有车次时由系统带出车次号；`package_count` 和 `weight_kg` 两者始终必填
+  - `huolala` 可复用同公司 + 同发货日期的已有车次；复用时件数和重量会沿用已有记录
 - 我的上报：补录/修改，老板审核留痕
 - 今日目标、作业信息
 
@@ -57,7 +57,7 @@ cd web
 npm run build
 ```
 
-本地默认连 `data/zy_shipping.sqlite3`。如需切换到 PostgreSQL，可设置 `SUPABASE_DATABASE_URL` 环境变量传入数据库 URL；这是沿用的历史变量名，当前数据库架构不依赖 Supabase。
+本地默认连 `data/zy_shipping.sqlite3`。如需切换到 PostgreSQL，可设置 `SUPABASE_DATABASE_URL` 环境变量传入数据库 URL；这是沿用的历史变量名，当前数据库架构不依赖 Supabase。在生产场景里，这个变量实际指向腾讯云机器上的 PostgreSQL。
 
 ## 数据库变更
 
@@ -98,14 +98,27 @@ sudo -u postgres psql -d zy_shipping -f scripts/audit_orders.sql
 repair CLI 默认分两步：
 
 ```bash
+# 本地 SQLite 示例
 python scripts/repair_unique_shipment_order_bindings.py --database /path/to/db.sqlite3 --preview repair-preview.json
+# 本地 SQLite 示例
 python scripts/repair_unique_shipment_order_bindings.py --database /path/to/db.sqlite3 --apply --audit repair-audit.json
 ```
 
 - `--preview` 只读输出 JSON，不写库
-- `--apply` 只会补绑 `preview` 里 `unique` 的记录，`ambiguous` 和 `unmatched` 会保持不变
+- `--apply` 会重新扫描并分类“执行当下”的数据库状态，不会读取 `preview` JSON 回灌执行；生产执行前应先比对 `preview` 与最终 `audit` 的统计和明细
+- `--apply` 只会补绑它本次重新分类出的 `unique` 记录，`ambiguous` 和 `unmatched` 会保持不变
 - 非 SQLite 数据库执行 `--apply` 前，必须先完成备份，并显式加 `--confirm-production-backup`
 - 生产执行前至少备份 PostgreSQL、`data/uploads/`、`data/waybills/`
+
+生产 PostgreSQL 完整示例：
+
+```bash
+python scripts/repair_unique_shipment_order_bindings.py --database-url-env SUPABASE_DATABASE_URL --preview repair-preview.json
+python scripts/repair_unique_shipment_order_bindings.py --database-url-env SUPABASE_DATABASE_URL --apply --audit repair-audit.json --confirm-production-backup
+```
+
+- `SUPABASE_DATABASE_URL` 是历史遗留变量名，但在线上实际指向腾讯云机器上的 PostgreSQL
+- 生产 `--apply` 前先完成备份，再执行，并核对 `preview` 与 `audit` 是否符合预期
 
 ## 数据备份
 
