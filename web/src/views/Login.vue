@@ -39,6 +39,10 @@ async function submit() {
         <el-alert v-if="error" :title="error" type="error" :closable="false" style="margin-bottom:12px" />
         <el-button type="primary" size="large" style="width:100%" :loading="loading" @click="submit">登录</el-button>
       </el-form>
+      <div class="version-switch" role="group" aria-label="版本选择">
+        <a class="version-switch-item" href="/mobile/login">手机版</a>
+        <span class="version-switch-item is-active">电脑版</span>
+      </div>
     </el-card>
   </div>
 </template>
@@ -60,5 +64,30 @@ async function submit() {
   margin: 0 0 4px;
   font-size: 20px;
   color: #111827;
+}
+
+.version-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.version-switch-item {
+  display: block;
+  text-align: center;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #2563eb;
+  text-decoration: none;
+  background: #ffffff;
+}
+
+.version-switch-item.is-active {
+  background: #f3f4f6;
+  color: #6b7280;
+  cursor: default;
 }
 </style>

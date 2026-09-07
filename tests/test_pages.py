@@ -23,6 +23,12 @@ def test_mobile_login_page_offers_desktop_entry():
     assert 'href="/app"' in html
 
 
+def test_admin_login_source_offers_mobile_entry():
+    source = (BASE_DIR / "web" / "src" / "views" / "Login.vue").read_text(encoding="utf-8")
+    assert "手机版" in source
+    assert 'href="/mobile/login"' in source
+
+
 def test_admin_spa_served_when_built():
     import pytest
 
