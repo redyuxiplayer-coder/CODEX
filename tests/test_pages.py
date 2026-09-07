@@ -15,6 +15,14 @@ def test_pages_render():
     assert "员工登录" in client.get("/mobile/login").text
 
 
+def test_mobile_login_page_offers_desktop_entry():
+    client = TestClient(create_app())
+    html = client.get("/mobile/login").text
+    assert "手机版" in html
+    assert "电脑版" in html
+    assert 'href="/app"' in html
+
+
 def test_admin_spa_served_when_built():
     import pytest
 
