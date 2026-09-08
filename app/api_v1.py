@@ -127,6 +127,10 @@ class CustomerOrderNoPayload(BaseModel):
     customer_order_no: str = ""
 
 
+class ShipDatePayload(BaseModel):
+    ship_date: str = ""
+
+
 def _user_dict(user: User) -> dict:
     return {
         "id": user.id,
@@ -1145,6 +1149,46 @@ def api_shipment_waybill(
     report.waybill_no = waybill_no.strip()
     session.commit()
     return {"ok": True}
+
+
+@router.post("/shipments/{report_id}/ship-date")
+def api_shipment_ship_date(
+    request: Request,
+    report_id: int,
+    payload: ShipDatePayload,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    report = session.get(ShipmentReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="发货单不存在")
+    before = report.ship_date or ""
+    from app.services.shipments import update_shipment_date
+
+    try:
+        report = update_shipment_date(
+            session,
+            report.id,
+            payload.ship_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    after = report.ship_date or ""
+    session.add(
+        OperationLog(
+            actor_id=admin.id,
+            action="shipment_date_update",
+            target=str(report.id),
+            detail=json.dumps(
+                {
+                    "before": before,
+                    "after": after,
+                }
+            ),
+        )
+    )
+    session.commit()
+    return {"ok": True, "ship_date": after}
 
 
 @router.get("/skus")

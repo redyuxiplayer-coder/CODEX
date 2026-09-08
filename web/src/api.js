@@ -158,6 +158,10 @@ export function updateShipmentWaybill(reportId, waybillNo) {
   return postForm(`/api/v1/shipments/${reportId}/waybill`, { waybill_no: waybillNo });
 }
 
+export function updateShipmentDate(reportId, shipDate) {
+  return postJson(`/api/v1/shipments/${reportId}/ship-date`, { ship_date: shipDate });
+}
+
 export function fetchSkus(q = "") {
   return request(`/api/v1/skus${q ? `?q=${encodeURIComponent(q)}` : ""}`);
 }

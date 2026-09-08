@@ -345,6 +345,27 @@ def update_own_pending_report(session: Session, report_id: int, user_id: int, re
     return report
 
 
+def update_shipment_date(
+    session: Session,
+    report_id: int,
+    ship_date: str,
+) -> ShipmentReport:
+    clean = str(ship_date or "").strip()
+    if not clean:
+        raise ValueError("发货日期不能为空")
+    try:
+        datetime.strptime(clean, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("发货日期格式不正确，应为 YYYY-MM-DD") from exc
+    report = session.get(ShipmentReport, report_id)
+    if report is None:
+        raise ValueError("发货单不存在")
+    report.ship_date = clean
+    session.commit()
+    session.refresh(report)
+    return report
+
+
 def delete_own_pending_report(session: Session, report_id: int, user_id: int) -> None:
     report = _get_own_pending_report(session, report_id, user_id)
     order_line_ids = {int(line.order_line_id) for line in report.lines if line.order_line_id}

@@ -1,7 +1,12 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { fetchShipments, updateShipmentWaybill, uploadShipmentPhotos } from "../api";
+import {
+  fetchShipments,
+  updateShipmentDate,
+  updateShipmentWaybill,
+  uploadShipmentPhotos,
+} from "../api";
 
 const data = ref({ reports: [], companies: [], page: 1, total_pages: 1, total: 0 });
 const company = ref("");
@@ -41,6 +46,17 @@ async function saveWaybill(row) {
   ElMessage.success("运单号已保存");
 }
 
+async function saveShipDate(row) {
+  try {
+    await updateShipmentDate(row.id, row.ship_date);
+    ElMessage.success("发货日期已保存");
+    load();
+  } catch (err) {
+    ElMessage.error(err.message);
+    load();
+  }
+}
+
 async function uploadPhotos(row, event) {
   const files = Array.from(event.target.files || []);
   if (!files.length) return;
@@ -71,7 +87,18 @@ async function uploadPhotos(row, event) {
       </div>
 
       <el-table :data="data.reports" v-loading="loading" border size="small">
-        <el-table-column prop="ship_date" label="日期" width="105" />
+        <el-table-column label="发货日期" width="150">
+          <template #default="{ row }">
+            <el-date-picker
+              v-model="row.ship_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              size="small"
+              style="width: 128px"
+              @change="saveShipDate(row)"
+            />
+          </template>
+        </el-table-column>
         <el-table-column label="时间" width="100">
           <template #default="{ row }">{{ new Date(row.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) }}</template>
         </el-table-column>
