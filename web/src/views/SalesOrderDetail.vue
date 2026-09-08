@@ -1,11 +1,19 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { archiveSalesOrder, fetchSalesOrder, restoreSalesOrder } from "../api";
+import {
+  archiveSalesOrder,
+  fetchSalesOrder,
+  restoreSalesOrder,
+  updateSalesOrderCustomerNo,
+} from "../api";
 
 const props = defineProps({ id: String });
 const order = ref(null);
 const actionLoading = ref(false);
+const editingCustomerNo = ref(false);
+const customerNoDraft = ref("");
+const savingCustomerNo = ref(false);
 
 async function load() {
   order.value = await fetchSalesOrder(props.id);
@@ -61,6 +69,29 @@ async function restoreOrder() {
   }
 }
 
+function startEditCustomerNo() {
+  customerNoDraft.value = order.value?.customer_order_no || "";
+  editingCustomerNo.value = true;
+}
+
+function cancelEditCustomerNo() {
+  editingCustomerNo.value = false;
+}
+
+async function saveCustomerNo() {
+  savingCustomerNo.value = true;
+  try {
+    await updateSalesOrderCustomerNo(props.id, customerNoDraft.value);
+    await load();
+    editingCustomerNo.value = false;
+    ElMessage.success("客户订单号已保存");
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    savingCustomerNo.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -97,7 +128,29 @@ onMounted(load);
       />
       <el-descriptions :column="3" border>
         <el-descriptions-item label="系统订单号">{{ order.system_order_no }}</el-descriptions-item>
-        <el-descriptions-item label="客户订单号">{{ order.customer_order_no || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="客户订单号">
+          <template v-if="editingCustomerNo">
+            <el-input
+              v-model="customerNoDraft"
+              size="small"
+              maxlength="160"
+              placeholder="客户没有则留空"
+              style="max-width: 260px"
+              @keyup.enter="saveCustomerNo"
+            />
+            <el-button
+              size="small"
+              type="primary"
+              :loading="savingCustomerNo"
+              @click="saveCustomerNo"
+            >保存</el-button>
+            <el-button size="small" :disabled="savingCustomerNo" @click="cancelEditCustomerNo">取消</el-button>
+          </template>
+          <template v-else>
+            {{ order.customer_order_no || "—" }}
+            <el-button link type="primary" size="small" @click="startEditCustomerNo">编辑</el-button>
+          </template>
+        </el-descriptions-item>
         <el-descriptions-item label="公司">{{ order.company.name }}</el-descriptions-item>
         <el-descriptions-item label="SPU">{{ order.spu.code }}</el-descriptions-item>
         <el-descriptions-item label="产品/款式">{{ order.product_name }} / {{ order.style_name }}</el-descriptions-item>

@@ -1,8 +1,10 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import create_app
-from app.models import Company, User
+from app.models import Company, OperationLog, SalesOrder, SalesOrderArchive, Spu, User
 
 
 def _client(db_session):
@@ -20,6 +22,81 @@ def _client(db_session):
     client = TestClient(app)
     client.cookies.set("zy_user_id", str(admin.id))
     return client
+
+
+def _seed_formal_order(db_session, customer_order_no=""):
+    company = Company(name="优衣库测试", code="YQX", next_order_sequence=2)
+    spu = Spu(code="JSP", product_name="裁判", style_name="成人V领", is_active=True)
+    db_session.add_all([company, spu])
+    db_session.flush()
+    order = SalesOrder(
+        system_order_no="YQX-00001-JSP",
+        customer_order_no=customer_order_no,
+        company_id=company.id,
+        company_sequence=1,
+        spu_id=spu.id,
+        product_name=spu.product_name,
+        style_name=spu.style_name,
+        color_name="",
+        color_code="",
+        order_date="2026-08-09",
+        delivery_date="",
+        note="",
+        status="active",
+    )
+    db_session.add(order)
+    db_session.commit()
+    db_session.refresh(order)
+    return order
+
+
+def test_update_customer_order_no_trims_and_logs(db_session):
+    client = _client(db_session)
+    order = _seed_formal_order(db_session)
+
+    response = client.post(
+        f"/api/v1/sales-orders/{order.id}/customer-order-no",
+        json={"customer_order_no": "   ABC-123  "},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["customer_order_no"] == "ABC-123"
+    log = (
+        db_session.query(OperationLog)
+        .filter(OperationLog.action == "sales_order_customer_no_update")
+        .one()
+    )
+    assert log.target == order.system_order_no
+    assert json.loads(log.detail)["after"] == "ABC-123"
+
+
+def test_update_customer_order_no_rejects_more_than_160_chars(db_session):
+    client = _client(db_session)
+    order = _seed_formal_order(db_session)
+
+    response = client.post(
+        f"/api/v1/sales-orders/{order.id}/customer-order-no",
+        json={"customer_order_no": "长" * 161},
+    )
+
+    assert response.status_code == 400
+
+
+def test_update_customer_order_no_allowed_for_archived_order(db_session):
+    client = _client(db_session)
+    order = _seed_formal_order(db_session)
+    admin = db_session.query(User).filter_by(username="formal_order_admin").one()
+    db_session.add(SalesOrderArchive(order_id=order.id, archived_by=admin.id))
+    db_session.commit()
+
+    response = client.post(
+        f"/api/v1/sales-orders/{order.id}/customer-order-no",
+        json={"customer_order_no": "ARCHIVED-OK"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_archived"] is True
+    assert response.json()["customer_order_no"] == "ARCHIVED-OK"
 
 
 def test_create_sales_order_api_returns_generated_number(db_session):

@@ -99,6 +99,12 @@ export function restoreSalesOrder(orderId) {
   return request(`/api/v1/sales-orders/${orderId}/restore`, { method: "POST" });
 }
 
+export function updateSalesOrderCustomerNo(orderId, customerOrderNo) {
+  return postJson(`/api/v1/sales-orders/${orderId}/customer-order-no`, {
+    customer_order_no: customerOrderNo,
+  });
+}
+
 export function createSalesOrder(data) {
   return postJson("/api/v1/sales-orders", data);
 }

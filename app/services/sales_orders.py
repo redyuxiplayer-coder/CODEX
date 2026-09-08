@@ -117,3 +117,20 @@ def create_sales_order(
     session.commit()
     session.refresh(order)
     return order
+
+
+def update_sales_order_customer_no(
+    session: Session,
+    order_id: int,
+    customer_order_no: str,
+) -> SalesOrder:
+    clean = str(customer_order_no or "").strip()
+    if len(clean) > 160:
+        raise ValueError("客户订单号不能超过 160 个字符")
+    order = session.get(SalesOrder, int(order_id))
+    if order is None:
+        raise ValueError("订单不存在")
+    order.customer_order_no = clean
+    session.commit()
+    session.refresh(order)
+    return order

@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -8,6 +10,7 @@ from app.config import SESSION_COOKIE
 from app.db import get_session
 from app.models import (
     Company,
+    OperationLog,
     OrderLedgerEntry,
     OrderLine,
     OrderLineComment,
@@ -54,7 +57,7 @@ from app.services.orders import (
     get_order_balances,
     get_order_choices,
 )
-from app.services.sales_orders import create_sales_order
+from app.services.sales_orders import create_sales_order, update_sales_order_customer_no
 from app.services.spus import create_spu, normalize_code
 from app.services.photos import save_uploads
 from app.services.returns import (
@@ -117,6 +120,10 @@ class SalesOrderPayload(BaseModel):
     delivery_date: str = ""
     note: str = ""
     lines: list[SalesOrderLinePayload] = Field(min_length=1)
+
+
+class CustomerOrderNoPayload(BaseModel):
+    customer_order_no: str = ""
 
 
 def _user_dict(user: User) -> dict:
@@ -687,6 +694,46 @@ def api_restore_sales_order(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     order = session.get(SalesOrder, order_id)
+    return _sales_order_dict(order, archive_state(session, order))
+
+
+@router.post("/sales-orders/{order_id}/customer-order-no")
+def api_update_sales_order_customer_no(
+    request: Request,
+    order_id: int,
+    payload: CustomerOrderNoPayload,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    order = session.get(SalesOrder, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    before = order.customer_order_no or ""
+    try:
+        order = update_sales_order_customer_no(
+            session,
+            order.id,
+            payload.customer_order_no,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    after = order.customer_order_no or ""
+    session.add(
+        OperationLog(
+            actor_id=admin.id,
+            action="sales_order_customer_no_update",
+            target=order.system_order_no,
+            detail=json.dumps(
+                {
+                    "order_id": order.id,
+                    "before": before,
+                    "after": after,
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    session.commit()
     return _sales_order_dict(order, archive_state(session, order))
 
 
