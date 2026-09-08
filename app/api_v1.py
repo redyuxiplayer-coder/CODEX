@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import authenticate, require_admin, require_user
@@ -1045,6 +1046,7 @@ def api_shipments(
     request: Request,
     company: str = "",
     waybill: str = "",
+    order_no: str = "",
     page: int = 1,
     session: Session = Depends(get_session),
 ):
@@ -1055,10 +1057,34 @@ def api_shipments(
         for row in session.query(ShipmentReport.company_name).distinct().order_by(ShipmentReport.company_name).all()
         if row[0]
     ]
-    if company:
-        query = query.filter(ShipmentReport.company_name == company)
-    if waybill.strip():
-        query = query.filter(ShipmentReport.waybill_no.contains(waybill.strip()))
+    clean_order_no = order_no.strip()
+    if clean_order_no:
+        like = f"%{clean_order_no}%"
+        matching_order_ids = (
+            select(SalesOrder.id)
+            .where(
+                or_(
+                    SalesOrder.system_order_no.ilike(like),
+                    SalesOrder.customer_order_no.ilike(like),
+                )
+            )
+            .scalar_subquery()
+        )
+        query = query.filter(
+            (ShipmentReport.order_id.in_(matching_order_ids))
+            | (
+                ShipmentReport.lines.any(
+                    ShipmentLine.order_line.has(
+                        OrderLine.order_id.in_(matching_order_ids)
+                    )
+                )
+            )
+        )
+    else:
+        if company:
+            query = query.filter(ShipmentReport.company_name == company)
+        if waybill.strip():
+            query = query.filter(ShipmentReport.waybill_no.contains(waybill.strip()))
     per_page = 10
     total = query.count()
     page = max(1, page)

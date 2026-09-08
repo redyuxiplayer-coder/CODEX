@@ -6,6 +6,7 @@ import { fetchShipments, updateShipmentWaybill, uploadShipmentPhotos } from "../
 const data = ref({ reports: [], companies: [], page: 1, total_pages: 1, total: 0 });
 const company = ref("");
 const waybill = ref("");
+const orderNo = ref("");
 const page = ref(1);
 const loading = ref(false);
 
@@ -14,7 +15,15 @@ const statusLabels = { pending_review: "待审核", auto_approved: "已通过", 
 async function load() {
   loading.value = true;
   try {
-    data.value = await fetchShipments({ company: company.value, waybill: waybill.value, page: page.value });
+    const params = { page: page.value };
+    const trimmedOrderNo = orderNo.value.trim();
+    if (trimmedOrderNo) {
+      params.order_no = trimmedOrderNo;
+    } else {
+      params.company = company.value;
+      params.waybill = waybill.value;
+    }
+    data.value = await fetchShipments(params);
   } finally {
     loading.value = false;
   }
@@ -57,6 +66,7 @@ async function uploadPhotos(row, event) {
           <el-option v-for="c in data.companies" :key="c" :label="c" :value="c" />
         </el-select>
         <el-input v-model="waybill" placeholder="运单号搜索" clearable style="width:200px" @keyup.enter="page = 1; load()" />
+        <el-input v-model="orderNo" placeholder="订单号搜索" clearable style="width:200px" @keyup.enter="page = 1; load()" />
         <el-button type="primary" :loading="loading" @click="page = 1; load()">查询</el-button>
       </div>
 
