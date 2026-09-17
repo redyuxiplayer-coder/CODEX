@@ -20,9 +20,20 @@ const actionLoading = ref(false);
 const editingCustomerNo = ref(false);
 const customerNoDraft = ref("");
 const savingCustomerNo = ref(false);
+let loadVersion = 0;
 
 async function load() {
-  order.value = await fetchSalesOrder(props.id);
+  const version = ++loadVersion;
+  const orderId = props.id;
+  if (order.value && String(order.value.id) !== String(orderId)) {
+    order.value = null;
+    selectedLineId.value = null;
+    editingCustomerNo.value = false;
+    customerNoDraft.value = "";
+  }
+  const result = await fetchSalesOrder(orderId);
+  if (version !== loadVersion || String(props.id) !== String(orderId)) return;
+  order.value = result;
   const requestedLine = Number(route.query.line);
   selectedLineId.value = order.value.lines.find((line) => line.id === requestedLine)?.id
     || order.value.lines[0]?.id
@@ -43,6 +54,8 @@ function blockingText() {
 }
 
 async function archiveOrder() {
+  const orderId = order.value?.id;
+  if (!orderId || String(props.id) !== String(orderId)) return;
   try {
     await ElMessageBox.confirm(
       `确认归档订单 ${order.value.system_order_no}？归档后员工不能再选择该订单发货。`,
@@ -52,9 +65,11 @@ async function archiveOrder() {
   } catch {
     return;
   }
+  if (String(props.id) !== String(orderId)) return;
   actionLoading.value = true;
   try {
-    order.value = await archiveSalesOrder(props.id);
+    const result = await archiveSalesOrder(orderId);
+    if (String(props.id) === String(orderId)) order.value = result;
     ElMessage.success("订单已归档");
   } catch (error) {
     ElMessage.error(error.message);
@@ -64,6 +79,8 @@ async function archiveOrder() {
 }
 
 async function restoreOrder() {
+  const orderId = order.value?.id;
+  if (!orderId || String(props.id) !== String(orderId)) return;
   try {
     await ElMessageBox.confirm(
       `确认恢复订单 ${order.value.system_order_no}？恢复后员工可以再次选择该订单发货。`,
@@ -73,9 +90,11 @@ async function restoreOrder() {
   } catch {
     return;
   }
+  if (String(props.id) !== String(orderId)) return;
   actionLoading.value = true;
   try {
-    order.value = await restoreSalesOrder(props.id);
+    const result = await restoreSalesOrder(orderId);
+    if (String(props.id) === String(orderId)) order.value = result;
     ElMessage.success("订单已恢复");
   } catch (error) {
     ElMessage.error(error.message);
@@ -94,10 +113,12 @@ function cancelEditCustomerNo() {
 }
 
 async function saveCustomerNo() {
+  const orderId = order.value?.id;
+  if (!orderId || String(props.id) !== String(orderId)) return;
   savingCustomerNo.value = true;
   try {
-    await updateSalesOrderCustomerNo(props.id, customerNoDraft.value);
-    await load();
+    await updateSalesOrderCustomerNo(orderId, customerNoDraft.value);
+    if (String(props.id) === String(orderId)) await load();
     editingCustomerNo.value = false;
     ElMessage.success("客户订单号已保存");
   } catch (error) {
