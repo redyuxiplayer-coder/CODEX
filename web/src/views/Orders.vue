@@ -72,12 +72,6 @@ const totals = computed(() => {
             <span v-else>—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="customer_order_no" label="客户订单号" min-width="150">
-          <template #default="{ row }">{{ row.customer_order_no || "—" }}</template>
-        </el-table-column>
-        <el-table-column label="下单日期" width="115">
-          <template #default="{ row }">{{ row.order_date || row.order_ref || "—" }}</template>
-        </el-table-column>
         <el-table-column prop="size" label="尺码" width="70" />
         <el-table-column prop="sku" label="SKU" min-width="110">
           <template #default="{ row }"><span class="muted">{{ row.sku || "—" }}</span></template>
