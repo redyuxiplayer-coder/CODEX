@@ -66,7 +66,16 @@ const totals = computed(() => {
         <el-table-column prop="company" label="公司" min-width="110" />
         <el-table-column prop="product" label="产品" min-width="120" />
         <el-table-column prop="style" label="款式" min-width="130" />
-        <el-table-column label="订单" min-width="100">
+        <el-table-column label="系统订单号" min-width="190">
+          <template #default="{ row }">
+            <el-button v-if="row.sales_order_id" type="primary" link @click="$router.push(`/sales-orders/${row.sales_order_id}?line=${row.order_id}`)">{{ row.system_order_no }}</el-button>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="customer_order_no" label="客户订单号" min-width="150">
+          <template #default="{ row }">{{ row.customer_order_no || "—" }}</template>
+        </el-table-column>
+        <el-table-column label="下单日期" width="115">
           <template #default="{ row }">{{ row.order_date || row.order_ref || "—" }}</template>
         </el-table-column>
         <el-table-column prop="size" label="尺码" width="70" />

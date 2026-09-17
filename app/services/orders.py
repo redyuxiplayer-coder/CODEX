@@ -288,7 +288,9 @@ def get_order_balances(
             OrderLine.sku.label("sku"),
             OrderLine.customer_sku.label("customer_sku"),
             OrderLine.note.label("note"),
+            SalesOrder.id.label("sales_order_id"),
             SalesOrder.system_order_no.label("system_order_no"),
+            SalesOrder.customer_order_no.label("customer_order_no"),
             SalesOrder.order_date.label("formal_order_date"),
         )
         .join(Company, Company.id == OrderLine.company_id)
@@ -385,11 +387,13 @@ def get_order_balances(
                 "company": row.company,
                 "order_id": int(row.id or 0),
                 "order_ids": [int(row.id or 0)],
+                "sales_order_id": int(row.sales_order_id) if row.sales_order_id else None,
                 "product": canonical_product,
                 "style": canonical_style,
                 "order_ref": order_ref,
                 "order_date": row.order_date or "",
                 "system_order_no": row.system_order_no or "",
+                "customer_order_no": row.customer_order_no or "",
                 "formal_order_date": row.formal_order_date or "",
                 "delivery_date": row.delivery_date or "",
                 "size": row.size,

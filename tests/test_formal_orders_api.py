@@ -105,6 +105,27 @@ def test_formal_order_detail_includes_each_size_fulfillment_and_customer_order_n
     assert payload["lines"][1]["totals"]["remaining"] == 400
 
 
+def test_balance_row_identifies_formal_order_for_detail_link(db_session):
+    client = _client(db_session)
+    company = Company(name="艾润特", code="ART", next_order_sequence=1)
+    spu = Spu(code="CPLL", product_name="裁判", style_name="成人拉链", is_active=True)
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session, company.id, spu.id, "", "", "2026-09-03",
+        [{"size": "S", "quantity": 400}], customer_order_no="P0260903116",
+    )
+
+    response = client.get("/api/v1/orders/balances?company=艾润特")
+
+    assert response.status_code == 200
+    row = response.json()["balances"][0]
+    assert row["system_order_no"] == order.system_order_no
+    assert row["customer_order_no"] == "P0260903116"
+    assert row["sales_order_id"] == order.id
+    assert row["order_id"] == order.lines[0].id
+
+
 def test_update_customer_order_no_trims_and_logs(db_session):
     client = _client(db_session)
     order = _seed_formal_order(db_session)
