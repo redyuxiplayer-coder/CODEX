@@ -19,20 +19,26 @@ const adjustForm = ref({ quantity: 1, reason: "盘点" });
 const closeForm = ref({ quantity: 1, reason: "" });
 const commentText = ref("");
 const submitting = ref(false);
+let loadVersion = 0;
 
 const ledgerLabels = { shipped: "发货", returned: "退回/返工", adjusted: "核销/调整", closed: "关闭" };
 const returnStatusLabels = { pending_rework: "待返工", reworked: "已返工", scrapped: "已报废" };
 
 async function load() {
+  const version = ++loadVersion;
+  const lineId = props.id;
   loading.value = true;
   detail.value = null;
   try {
-    detail.value = await fetchOrderLine(props.id);
+    const result = await fetchOrderLine(lineId);
+    if (version !== loadVersion) return;
+    detail.value = result;
   } catch (err) {
+    if (version !== loadVersion) return;
     ElMessage.error(err.message);
     if (!props.embedded) router.replace("/orders");
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 

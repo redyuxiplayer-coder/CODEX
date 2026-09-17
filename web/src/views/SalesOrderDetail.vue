@@ -208,7 +208,7 @@ watch(() => route.query.line, (lineId) => {
     </div>
     <div v-if="selectedLine" class="section-card">
       <h2>{{ selectedLine.size }} 码详细记录</h2>
-      <OrderLine :id="selectedLine.id" embedded @updated="load" />
+      <OrderLine :key="selectedLine.id" :id="selectedLine.id" embedded @updated="load" />
     </div>
   </div>
 </template>
