@@ -51,6 +51,7 @@ def test_shipment_api_payload_includes_formal_order_identity(db_session):
     assert payload["color_name"] == "红色"
     assert payload["spu_code"] == "JS"
     assert payload["lines"][0]["customer_sku"] == "FZB1209001-01-red-S"
+    assert payload["lines"][0]["sales_order_id"] == order.id
 
 
 def test_historical_cross_order_report_lists_each_line_order_identity(db_session):
@@ -91,6 +92,7 @@ def test_historical_cross_order_report_lists_each_line_order_identity(db_session
         "YXF-00002-JS-PURPLE",
     ]
     assert [line["order_date"] for line in payload["lines"]] == ["2026-08-09", "2026-08-11"]
+    assert [line["sales_order_id"] for line in payload["lines"]] == [first_order.id, second_order.id]
 
 
 def test_unlinked_logistics_row_includes_system_order_number(db_session):

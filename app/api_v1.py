@@ -151,7 +151,11 @@ def _spu_dict(spu: Spu) -> dict:
     }
 
 
-def _sales_order_dict(order: SalesOrder, state: dict | None = None) -> dict:
+def _sales_order_dict(
+    order: SalesOrder,
+    state: dict | None = None,
+    totals_by_line: dict[int, dict] | None = None,
+) -> dict:
     archive_info = state or {
         "is_archived": False,
         "can_archive": False,
@@ -180,6 +184,7 @@ def _sales_order_dict(order: SalesOrder, state: dict | None = None) -> dict:
                 "size": line.size,
                 "quantity": line.quantity,
                 "customer_sku": line.customer_sku or "",
+                **({"totals": totals_by_line[line.id]} if totals_by_line is not None else {}),
             }
             for line in order.lines
         ],
@@ -327,6 +332,7 @@ def _report_dict(report: ShipmentReport) -> dict:
                 "size": line.size,
                 "quantity": line.quantity,
                 "order_line_id": line.order_line_id,
+                "sales_order_id": formal_order.id if formal_order else None,
                 "customer_sku": order.customer_sku if order else "",
                 "system_order_no": system_order_no,
                 "order_date": order_date or "",
@@ -669,7 +675,11 @@ def api_sales_order_detail(
     order = session.get(SalesOrder, order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="订单不存在")
-    return _sales_order_dict(order, archive_state(session, order))
+    return _sales_order_dict(
+        order,
+        archive_state(session, order),
+        {line.id: order_line_totals(session, line.id) for line in order.lines},
+    )
 
 
 @router.post("/sales-orders/{order_id}/archive")
@@ -684,7 +694,11 @@ def api_archive_sales_order(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     order = session.get(SalesOrder, order_id)
-    return _sales_order_dict(order, archive_state(session, order))
+    return _sales_order_dict(
+        order,
+        archive_state(session, order),
+        {line.id: order_line_totals(session, line.id) for line in order.lines},
+    )
 
 
 @router.post("/sales-orders/{order_id}/restore")
@@ -699,7 +713,11 @@ def api_restore_sales_order(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     order = session.get(SalesOrder, order_id)
-    return _sales_order_dict(order, archive_state(session, order))
+    return _sales_order_dict(
+        order,
+        archive_state(session, order),
+        {line.id: order_line_totals(session, line.id) for line in order.lines},
+    )
 
 
 @router.post("/sales-orders/{order_id}/customer-order-no")

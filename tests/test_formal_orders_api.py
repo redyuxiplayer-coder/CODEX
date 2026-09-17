@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 from app.db import get_session
 from app.main import create_app
 from app.models import Company, OperationLog, SalesOrder, SalesOrderArchive, Spu, User
+from app.services.sales_orders import create_sales_order
+from app.services.shipments import submit_shipment_report
 
 
 def _client(db_session):
@@ -48,6 +50,59 @@ def _seed_formal_order(db_session, customer_order_no=""):
     db_session.commit()
     db_session.refresh(order)
     return order
+
+
+def test_formal_order_detail_includes_each_size_fulfillment_and_customer_order_no(db_session):
+    client = _client(db_session)
+    company = Company(name="艾润特", code="ART", next_order_sequence=1)
+    spu = Spu(code="CPLL", product_name="裁判", style_name="成人拉链", is_active=True)
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "",
+        "",
+        "2026-09-03",
+        [
+            {"size": "S", "quantity": 400, "customer_sku": "CUSTOM-S"},
+            {"size": "L", "quantity": 400, "customer_sku": "CUSTOM-L"},
+        ],
+        customer_order_no="P0260903116",
+    )
+    admin = db_session.query(User).filter_by(username="formal_order_admin").one()
+    submit_shipment_report(
+        db_session,
+        admin.id,
+        "2026-09-06",
+        "",
+        "",
+        "",
+        [{"size": "S", "quantity": 103, "order_line_id": order.lines[0].id}],
+        order_id=order.id,
+    )
+
+    response = client.get(f"/api/v1/sales-orders/{order.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["system_order_no"] == order.system_order_no
+    assert payload["customer_order_no"] == "P0260903116"
+    assert [(line["size"], line["customer_sku"]) for line in payload["lines"]] == [
+        ("S", "CUSTOM-S"),
+        ("L", "CUSTOM-L"),
+    ]
+    assert payload["lines"][0]["totals"] == {
+        "ordered": 400,
+        "shipped": 103,
+        "returned": 0,
+        "adjusted": 0,
+        "closed": 0,
+        "remaining": 297,
+        "over_shipped": 0,
+    }
+    assert payload["lines"][1]["totals"]["remaining"] == 400
 
 
 def test_update_customer_order_no_trims_and_logs(db_session):
