@@ -1,10 +1,12 @@
 # 发货系统
 
+> 当前接手与部署状态以 `E:\CODEX\1-项目\仓库系统管理\11-共享接手状态.md` 为准；旧腾讯云记录仅供历史参考。
+
 面向小团队服装订单与发货管理的 Web 系统：订单管理、发货上报、审核、快递单挂靠、导出与统计，电脑端和手机端共用一套数据。
 
 ## 部署现状
 
-- 正式环境：腾讯云 Lighthouse，systemd 服务 `zy-shipping`
+- 正式环境：阿里云，systemd 服务 `zy-shipping`
 - 数据库：PostgreSQL `zy_shipping`（应用账号 `zy_shipping`；表结构由 postgres 管理员维护，迁移见下方「数据库变更」）
 - 管理端：Vue 3 + Element Plus，部署在 `/app`（电脑端、手机端浏览器均可访问）
 - 手机端：服务端渲染页面 `/mobile`（员工发货上报）
@@ -13,10 +15,10 @@
 
 ## 访问入口
 
-部署后通过服务器 IP 或域名访问：
+当前通过以下域名访问：
 
-- 管理端：`http://<服务器地址>/app`
-- 手机端：`http://<服务器地址>/mobile/login`
+- 管理端：`http://www.zyfahuo.cn/app/`
+- 手机端：`http://www.zyfahuo.cn/mobile/login`
 
 ## 功能
 
@@ -24,6 +26,7 @@
 
 - 首页统计：待审核数、今日发货、超发合计等
 - 新增订单 / 订单查询：订单行余额 = 下单 − 已发 + 退回 − 核销 − 关闭；订单行详情含流水、退货/返工、盘点/调整（支持负数冲超发）、关闭、沟通记录
+- 正式订单与发货明细中的订单号进入同一张完整订单详情页，顶部显示系统和客户订单号、各尺码进度；从发货明细进入时自动选中对应尺码并显示发货流水与原有处理操作。未绑定正式订单的历史行仍打开原订单行页面。
 - 待审核：超发、无订单、重复嫌疑进入待审核，老板通过或驳回
 - 发货明细：按日期/公司/款式查看，可按快递单号搜索
 - 每日统计：按真实发货日期汇总
@@ -57,7 +60,7 @@ cd web
 npm run build
 ```
 
-本地默认连 `data/zy_shipping.sqlite3`。如需切换到 PostgreSQL，可设置 `SUPABASE_DATABASE_URL` 环境变量传入数据库 URL；这是沿用的历史变量名，当前数据库架构不依赖 Supabase。在生产场景里，这个变量实际指向腾讯云机器上的 PostgreSQL。
+本地默认连 `data/zy_shipping.sqlite3`。如需切换到 PostgreSQL，可设置 `SUPABASE_DATABASE_URL` 环境变量传入数据库 URL；这是沿用的历史变量名，当前数据库架构不依赖 Supabase。生产连接目标以阿里云服务实际环境为准。
 
 ## 数据库变更
 
@@ -118,7 +121,7 @@ python scripts/repair_unique_shipment_order_bindings.py --database-url-env SUPAB
 python scripts/repair_unique_shipment_order_bindings.py --database-url-env SUPABASE_DATABASE_URL --apply --audit repair-audit.json --confirm-production-backup
 ```
 
-- `SUPABASE_DATABASE_URL` 是历史遗留变量名，但在线上实际指向腾讯云机器上的 PostgreSQL
+- `SUPABASE_DATABASE_URL` 是历史遗留变量名；执行前核对阿里云服务实际连接目标
 - 生产流程同样遵循：先人工检查 `preview`，确认并备份后执行 `--apply`，最后再用 `audit` 对照 `preview` 复核 `unique` / `ambiguous` / `unmatched`
 
 ## 数据备份
