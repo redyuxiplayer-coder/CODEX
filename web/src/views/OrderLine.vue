@@ -1,10 +1,14 @@
 <script setup>
-import { onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { fetchOrderLine, postForm, postFormData } from "../api";
 
-const route = useRoute();
+const props = defineProps({
+  id: [String, Number],
+  embedded: { type: Boolean, default: false },
+});
+const emit = defineEmits(["updated"]);
 const router = useRouter();
 const detail = ref(null);
 const loading = ref(false);
@@ -21,17 +25,19 @@ const returnStatusLabels = { pending_rework: "待返工", reworked: "已返工",
 
 async function load() {
   loading.value = true;
+  detail.value = null;
   try {
-    detail.value = await fetchOrderLine(route.params.id);
+    detail.value = await fetchOrderLine(props.id);
   } catch (err) {
     ElMessage.error(err.message);
-    router.replace("/orders");
+    if (!props.embedded) router.replace("/orders");
   } finally {
     loading.value = false;
   }
 }
 
 onMounted(load);
+watch(() => props.id, load);
 
 function onReturnPhotos(event) {
   returnPhotos.value = Array.from(event.target.files || []);
@@ -46,7 +52,8 @@ async function addReturn() {
     form.set("reason", returnForm.value.reason);
     form.set("status", returnForm.value.status);
     returnPhotos.value.forEach((file) => form.append("photos", file));
-    detail.value = await postFormData(`/api/v1/order-lines/${route.params.id}/returns`, form);
+    detail.value = await postFormData(`/api/v1/order-lines/${props.id}/returns`, form);
+    emit("updated");
     returnForm.value = { quantity: 1, reason_type: "退回返工", reason: "", status: "pending_rework" };
     returnPhotos.value = [];
     ElMessage.success("已登记退货/返工");
@@ -59,7 +66,8 @@ async function addReturn() {
 
 async function changeReturnStatus(record, status) {
   try {
-    detail.value = await postForm(`/api/v1/order-lines/${route.params.id}/returns/${record.id}/status`, { status });
+    detail.value = await postForm(`/api/v1/order-lines/${props.id}/returns/${record.id}/status`, { status });
+    emit("updated");
     ElMessage.success("状态已更新");
   } catch (err) {
     ElMessage.error(err.message);
@@ -68,7 +76,8 @@ async function changeReturnStatus(record, status) {
 
 async function addAdjustment() {
   try {
-    detail.value = await postForm(`/api/v1/order-lines/${route.params.id}/adjustments`, adjustForm.value);
+    detail.value = await postForm(`/api/v1/order-lines/${props.id}/adjustments`, adjustForm.value);
+    emit("updated");
     adjustForm.value = { quantity: 1, reason: "盘点" };
     ElMessage.success("已登记调整");
   } catch (err) {
@@ -78,7 +87,8 @@ async function addAdjustment() {
 
 async function addClose() {
   try {
-    detail.value = await postForm(`/api/v1/order-lines/${route.params.id}/closes`, closeForm.value);
+    detail.value = await postForm(`/api/v1/order-lines/${props.id}/closes`, closeForm.value);
+    emit("updated");
     closeForm.value = { quantity: 1, reason: "" };
     ElMessage.success("已关闭余量");
   } catch (err) {
@@ -89,7 +99,8 @@ async function addClose() {
 async function addComment() {
   if (!commentText.value.trim()) return;
   try {
-    detail.value = await postForm(`/api/v1/order-lines/${route.params.id}/comments`, { content: commentText.value });
+    detail.value = await postForm(`/api/v1/order-lines/${props.id}/comments`, { content: commentText.value });
+    emit("updated");
     commentText.value = "";
     ElMessage.success("已添加记录");
   } catch (err) {
@@ -101,12 +112,12 @@ async function addComment() {
 <template>
   <div v-loading="loading">
     <template v-if="detail">
-      <h1 class="page-title">
+      <h1 v-if="!embedded" class="page-title">
         {{ detail.order.company }} · {{ detail.order.style }} / {{ detail.order.size }}
         <el-button size="small" style="margin-left:12px" @click="router.push('/orders')">返回订单查询</el-button>
       </h1>
 
-      <div class="section-card">
+      <div v-if="!embedded" class="section-card">
         <el-descriptions :column="4" border>
           <el-descriptions-item label="公司">{{ detail.order.company }}</el-descriptions-item>
           <el-descriptions-item label="产品">{{ detail.order.product }}</el-descriptions-item>

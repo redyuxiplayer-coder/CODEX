@@ -7,6 +7,7 @@ import {
   updateShipmentWaybill,
   uploadShipmentPhotos,
 } from "../api";
+import { shipmentOrderTarget } from "../order-links";
 
 const data = ref({ reports: [], companies: [], page: 1, total_pages: 1, total: 0 });
 const company = ref("");
@@ -130,7 +131,7 @@ async function uploadPhotos(row, event) {
                 type="primary"
                 link
                 size="small"
-                @click="$router.push(`/order-lines/${l.order_line_id}`)"
+                @click="$router.push(shipmentOrderTarget(l))"
               >{{ l.order_label }}</el-button>
               <span v-else class="danger-text">未绑定订单</span>
             </div>

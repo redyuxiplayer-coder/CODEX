@@ -1,6 +1,8 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
+import OrderLine from "./OrderLine.vue";
 import {
   archiveSalesOrder,
   fetchSalesOrder,
@@ -9,7 +11,11 @@ import {
 } from "../api";
 
 const props = defineProps({ id: String });
+const route = useRoute();
+const router = useRouter();
 const order = ref(null);
+const selectedLineId = ref(null);
+const selectedLine = computed(() => order.value?.lines.find((line) => line.id === selectedLineId.value));
 const actionLoading = ref(false);
 const editingCustomerNo = ref(false);
 const customerNoDraft = ref("");
@@ -17,6 +23,15 @@ const savingCustomerNo = ref(false);
 
 async function load() {
   order.value = await fetchSalesOrder(props.id);
+  const requestedLine = Number(route.query.line);
+  selectedLineId.value = order.value.lines.find((line) => line.id === requestedLine)?.id
+    || order.value.lines[0]?.id
+    || null;
+}
+
+function selectLine(lineId) {
+  selectedLineId.value = lineId;
+  router.replace({ path: route.path, query: { ...route.query, line: String(lineId) } });
 }
 
 function formatTime(value) {
@@ -93,12 +108,18 @@ async function saveCustomerNo() {
 }
 
 onMounted(load);
+watch(() => props.id, load);
+watch(() => route.query.line, (lineId) => {
+  const match = order.value?.lines.find((line) => line.id === Number(lineId));
+  if (match) selectedLineId.value = match.id;
+});
 </script>
 
 <template>
   <div v-if="order">
     <div class="filter-bar">
       <h1 class="page-title">订单 {{ order.system_order_no }}</h1>
+      <span>客户订单号：<b>{{ order.customer_order_no || "—" }}</b></span>
       <el-tag :type="order.is_archived ? 'info' : 'success'">{{ order.is_archived ? "已归档" : "进行中" }}</el-tag>
       <el-button
         v-if="!order.is_archived"
@@ -161,8 +182,18 @@ onMounted(load);
       </el-descriptions>
       <h3>尺码明细</h3>
       <el-table :data="order.lines" border>
-        <el-table-column prop="size" label="尺码" width="120" />
-        <el-table-column prop="quantity" label="数量" width="120" />
+        <el-table-column label="尺码" width="110">
+          <template #default="{ row }">
+            <el-button type="primary" link @click="selectLine(row.id)">{{ row.size }}</el-button>
+            <el-tag v-if="row.id === selectedLineId" size="small" type="success">当前</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="quantity" label="下单" width="90" />
+        <el-table-column prop="totals.shipped" label="已发" width="90" />
+        <el-table-column prop="totals.returned" label="已退/返工" width="105" />
+        <el-table-column prop="totals.adjusted" label="核销/调整" width="105" />
+        <el-table-column prop="totals.closed" label="关闭" width="90" />
+        <el-table-column prop="totals.remaining" label="还差" width="90" />
         <el-table-column prop="customer_sku" label="客户 SKU"><template #default="{ row }">{{ row.customer_sku || "—" }}</template></el-table-column>
       </el-table>
       <template v-if="order.history?.length">
@@ -174,6 +205,10 @@ onMounted(load);
           <el-table-column prop="restored_by_name" label="恢复人" min-width="100"><template #default="{ row }">{{ row.restored_by_name || "—" }}</template></el-table-column>
         </el-table>
       </template>
+    </div>
+    <div v-if="selectedLine" class="section-card">
+      <h2>{{ selectedLine.size }} 码详细记录</h2>
+      <OrderLine :id="selectedLine.id" embedded @updated="load" />
     </div>
   </div>
 </template>
