@@ -11,6 +11,14 @@ PRICE_QUANTUM = Decimal("0.01")
 MAX_UNIT_PRICE = Decimal("9999999999.99")
 
 
+class OrderPriceTargetNotFoundError(ValueError):
+    pass
+
+
+class StaleUnitPriceError(ValueError):
+    pass
+
+
 def parse_unit_price(value: object) -> Decimal | None:
     if value is None or isinstance(value, str) and not value.strip():
         return None
@@ -60,15 +68,27 @@ def update_order_line_unit_price(
     order_id: int,
     line_id: int,
     value: object,
+    expected_value: object,
 ) -> tuple[OrderLine, Decimal | None]:
+    price = parse_unit_price(value)
+    expected_price = parse_unit_price(expected_value)
     order = session.get(SalesOrder, int(order_id))
     if order is None:
-        raise ValueError("订单不存在")
-    line = session.get(OrderLine, int(line_id))
-    if line is None or line.order_id != order.id:
+        raise OrderPriceTargetNotFoundError("订单不存在")
+    line = (
+        session.query(OrderLine)
+        .filter(OrderLine.id == int(line_id))
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
+    if line is None:
+        raise OrderPriceTargetNotFoundError("订单行不存在")
+    if line.order_id != order.id:
         raise ValueError("订单行不存在或不属于该订单")
-    price = parse_unit_price(value)
-    before = line.unit_price
+    before = parse_unit_price(line.unit_price)
+    if before != expected_price:
+        raise StaleUnitPriceError("单价已变更，请刷新订单后重试")
     line.unit_price = price
     session.flush()
     return line, before

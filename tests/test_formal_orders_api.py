@@ -260,7 +260,7 @@ def test_price_update_completes_order_and_records_audit(db_session):
 
     response = client.post(
         f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
-        json={"unit_price": 0},
+        json={"unit_price": 0, "expected_unit_price": None},
     )
 
     assert response.status_code == 200
@@ -288,7 +288,7 @@ def test_price_update_completes_order_and_records_audit(db_session):
 
     cleared = client.post(
         f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
-        json={"unit_price": None},
+        json={"unit_price": None, "expected_unit_price": "0.00"},
     )
     assert cleared.status_code == 200
     assert cleared.json()["price_summary"]["total_amount"] is None
@@ -296,6 +296,59 @@ def test_price_update_completes_order_and_records_audit(db_session):
     clear_log = json.loads(db_session.query(OperationLog).order_by(OperationLog.id.desc()).first().detail)
     assert clear_log["before"] == "0.00"
     assert clear_log["after"] is None
+
+
+def test_price_update_rejects_stale_expected_price_without_overwriting_or_auditing(db_session):
+    client = _client(db_session)
+    company = Company(name="并发测试", code="CONC", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session, company.id, spu.id, "", "", "2026-09-24",
+        [{"size": "S", "quantity": 1}],
+    )
+    line = order.lines[0]
+    url = f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price"
+
+    first = client.post(url, json={"unit_price": "0.00", "expected_unit_price": None})
+    stale_null = client.post(url, json={"unit_price": "8.00", "expected_unit_price": None})
+
+    assert first.status_code == 200
+    assert stale_null.status_code == 409
+    assert "单价" in stale_null.json()["detail"]
+    assert db_session.get(OrderLine, line.id).unit_price == Decimal("0.00")
+    assert db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").count() == 1
+
+    second = client.post(url, json={"unit_price": "12.30", "expected_unit_price": 0})
+    stale_zero = client.post(url, json={"unit_price": "5.00", "expected_unit_price": "0.00"})
+
+    assert second.status_code == 200
+    assert stale_zero.status_code == 409
+    assert db_session.get(OrderLine, line.id).unit_price == Decimal("12.30")
+    assert db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").count() == 2
+
+
+def test_price_update_requires_expected_previous_price(db_session):
+    client = _client(db_session)
+    company = Company(name="并发测试", code="CONC", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session, company.id, spu.id, "", "", "2026-09-24",
+        [{"size": "S", "quantity": 1}],
+    )
+    line = order.lines[0]
+
+    response = client.post(
+        f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
+        json={"unit_price": "12.30"},
+    )
+
+    assert response.status_code == 422
+    assert db_session.get(OrderLine, line.id).unit_price is None
+    assert db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").count() == 0
 
 
 def test_price_summary_ignores_inactive_lines(db_session):
@@ -360,15 +413,25 @@ def test_price_update_rejects_wrong_order_and_invalid_value(db_session):
 
     wrong_order = client.post(
         f"/api/v1/sales-orders/{second.id}/lines/{line.id}/unit-price",
-        json={"unit_price": "9.99"},
+        json={"unit_price": "9.99", "expected_unit_price": None},
     )
     invalid_price = client.post(
         f"/api/v1/sales-orders/{first.id}/lines/{line.id}/unit-price",
-        json={"unit_price": "9.999"},
+        json={"unit_price": "9.999", "expected_unit_price": None},
+    )
+    missing_order = client.post(
+        f"/api/v1/sales-orders/{second.id + 1000}/lines/{line.id}/unit-price",
+        json={"unit_price": "9.99", "expected_unit_price": None},
+    )
+    missing_line = client.post(
+        f"/api/v1/sales-orders/{first.id}/lines/{line.id + 1000}/unit-price",
+        json={"unit_price": "9.99", "expected_unit_price": None},
     )
 
     assert wrong_order.status_code == 400
     assert invalid_price.status_code == 400
+    assert missing_order.status_code == 404
+    assert missing_line.status_code == 404
     assert db_session.get(OrderLine, line.id).unit_price is None
     assert db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").count() == 0
 
@@ -384,7 +447,7 @@ def test_worker_cannot_read_or_update_order_prices(db_session):
     detail = client.get(f"/api/v1/sales-orders/{order.id}")
     update = client.post(
         f"/api/v1/sales-orders/{order.id}/lines/1/unit-price",
-        json={"unit_price": "12.30"},
+        json={"unit_price": "12.30", "expected_unit_price": None},
     )
 
     assert detail.status_code == 403
@@ -409,7 +472,7 @@ def test_price_update_rolls_back_when_audit_insert_fails(db_session):
         with pytest.raises(RuntimeError, match="audit insert failed"):
             client.post(
                 f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
-                json={"unit_price": "12.30"},
+                json={"unit_price": "12.30", "expected_unit_price": None},
             )
     finally:
         event.remove(OperationLog, "before_insert", fail_audit)

@@ -60,6 +60,8 @@ from app.services.orders import (
     get_order_choices,
 )
 from app.services.sales_orders import (
+    OrderPriceTargetNotFoundError,
+    StaleUnitPriceError,
     create_sales_order,
     money_from_cents,
     order_line_amount_cents,
@@ -138,6 +140,7 @@ class CustomerOrderNoPayload(BaseModel):
 
 class UnitPricePayload(BaseModel):
     unit_price: str | Decimal | None
+    expected_unit_price: str | Decimal | None
 
 
 class ShipDatePayload(BaseModel):
@@ -799,7 +802,15 @@ def api_update_order_line_unit_price(
 ):
     admin = require_admin(request, session)
     try:
-        line, before = update_order_line_unit_price(session, order_id, line_id, payload.unit_price)
+        line, before = update_order_line_unit_price(
+            session, order_id, line_id, payload.unit_price, payload.expected_unit_price,
+        )
+    except OrderPriceTargetNotFoundError as exc:
+        session.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StaleUnitPriceError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
