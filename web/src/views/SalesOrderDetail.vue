@@ -3,11 +3,13 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import OrderLine from "./OrderLine.vue";
+import { formatMoney, priceStatusText } from "../order-pricing.js";
 import {
   archiveSalesOrder,
   fetchSalesOrder,
   restoreSalesOrder,
   updateSalesOrderCustomerNo,
+  updateSalesOrderLineUnitPrice,
 } from "../api";
 
 const props = defineProps({ id: String });
@@ -20,6 +22,9 @@ const actionLoading = ref(false);
 const editingCustomerNo = ref(false);
 const customerNoDraft = ref("");
 const savingCustomerNo = ref(false);
+const editingPriceLineId = ref(null);
+const priceDraft = ref(null);
+const savingPrice = ref(false);
 let loadVersion = 0;
 
 async function load() {
@@ -30,12 +35,17 @@ async function load() {
     selectedLineId.value = null;
     editingCustomerNo.value = false;
     customerNoDraft.value = "";
+    editingPriceLineId.value = null;
+    priceDraft.value = null;
+    savingPrice.value = false;
   }
   const result = await fetchSalesOrder(orderId);
   if (version !== loadVersion || String(props.id) !== String(orderId)) return;
+  const selectedId = selectedLineId.value;
   order.value = result;
   const requestedLine = Number(route.query.line);
-  selectedLineId.value = order.value.lines.find((line) => line.id === requestedLine)?.id
+  selectedLineId.value = order.value.lines.find((line) => line.id === selectedId)?.id
+    || order.value.lines.find((line) => line.id === requestedLine)?.id
     || order.value.lines[0]?.id
     || null;
 }
@@ -128,6 +138,36 @@ async function saveCustomerNo() {
   }
 }
 
+function startEditPrice(line) {
+  editingPriceLineId.value = line.id;
+  priceDraft.value = line.unit_price === null ? null : Number(line.unit_price);
+}
+
+function cancelEditPrice() {
+  editingPriceLineId.value = null;
+  priceDraft.value = null;
+}
+
+async function savePrice(line) {
+  const orderId = order.value?.id;
+  const lineId = line.id;
+  if (!orderId || String(props.id) !== String(orderId) || editingPriceLineId.value !== lineId || savingPrice.value) return;
+  savingPrice.value = true;
+  try {
+    const unitPrice = priceDraft.value === "" || priceDraft.value == null ? null : priceDraft.value;
+    await updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice);
+    if (String(props.id) !== String(orderId)) return;
+    await load();
+    if (String(props.id) !== String(orderId) || editingPriceLineId.value !== lineId) return;
+    cancelEditPrice();
+    ElMessage.success("商品单价已保存");
+  } catch (error) {
+    if (String(props.id) === String(orderId)) ElMessage.error(error.message);
+  } finally {
+    if (String(props.id) === String(orderId)) savingPrice.value = false;
+  }
+}
+
 onMounted(load);
 watch(() => props.id, load);
 watch(() => route.query.line, (lineId) => {
@@ -200,6 +240,7 @@ watch(() => route.query.line, (lineId) => {
         <el-descriptions-item label="下单日期">{{ order.order_date }}</el-descriptions-item>
         <el-descriptions-item label="交期">{{ order.delivery_date || "—" }}</el-descriptions-item>
         <el-descriptions-item label="备注">{{ order.note || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="订单金额">{{ priceStatusText(order.price_summary) }}</el-descriptions-item>
       </el-descriptions>
       <h3>尺码明细</h3>
       <el-table :data="order.lines" border>
@@ -215,6 +256,20 @@ watch(() => route.query.line, (lineId) => {
         <el-table-column prop="totals.adjusted" label="核销/调整" width="105" />
         <el-table-column prop="totals.closed" label="关闭" width="90" />
         <el-table-column prop="totals.remaining" label="还差" width="90" />
+        <el-table-column label="商品单价" min-width="260">
+          <template #default="{ row }">
+            <template v-if="editingPriceLineId === row.id">
+              <el-input-number v-model="priceDraft" :min="0" :precision="2" :step="0.01" placeholder="未填写" size="small" style="width:145px" />
+              <el-button type="primary" link size="small" :loading="savingPrice" @click="savePrice(row)">保存</el-button>
+              <el-button link size="small" :disabled="savingPrice" @click="cancelEditPrice">取消</el-button>
+            </template>
+            <template v-else>
+              {{ formatMoney(row.unit_price) }}
+              <el-button type="primary" link size="small" :disabled="savingPrice" @click="startEditPrice(row)">编辑</el-button>
+            </template>
+          </template>
+        </el-table-column>
+        <el-table-column label="尺码金额" min-width="120"><template #default="{ row }">{{ formatMoney(row.line_amount) }}</template></el-table-column>
         <el-table-column prop="customer_sku" label="客户 SKU"><template #default="{ row }">{{ row.customer_sku || "—" }}</template></el-table-column>
       </el-table>
       <template v-if="order.history?.length">

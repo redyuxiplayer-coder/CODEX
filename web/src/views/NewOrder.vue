@@ -17,10 +17,10 @@ const form = ref({
   delivery_date: "",
   note: "",
   lines: [
-    { size: "S", quantity: 0, customer_sku: "" },
-    { size: "M", quantity: 0, customer_sku: "" },
-    { size: "L", quantity: 0, customer_sku: "" },
-    { size: "XL", quantity: 0, customer_sku: "" },
+    { size: "S", quantity: 0, customer_sku: "", unit_price: null },
+    { size: "M", quantity: 0, customer_sku: "", unit_price: null },
+    { size: "L", quantity: 0, customer_sku: "", unit_price: null },
+    { size: "XL", quantity: 0, customer_sku: "", unit_price: null },
   ],
 });
 
@@ -33,7 +33,7 @@ onMounted(async () => {
 });
 
 function addLine() {
-  form.value.lines.push({ size: "", quantity: 0, customer_sku: "" });
+  form.value.lines.push({ size: "", quantity: 0, customer_sku: "", unit_price: null });
 }
 
 function removeLine(index) {
@@ -41,7 +41,9 @@ function removeLine(index) {
 }
 
 async function submit() {
-  const lines = form.value.lines.filter((line) => line.size.trim() && Number(line.quantity) > 0);
+  const lines = form.value.lines
+    .filter((line) => line.size.trim() && Number(line.quantity) > 0)
+    .map((line) => ({ ...line, unit_price: line.unit_price === "" || line.unit_price == null ? null : line.unit_price }));
   if (!form.value.company_id || !form.value.spu_id || !form.value.order_date || !lines.length) {
     ElMessage.warning("请选择公司和 SPU，并填写下单日期及尺码数量");
     return;
@@ -98,10 +100,11 @@ async function submit() {
         </el-row>
         <el-form-item label="尺码明细">
           <div style="width:100%">
-            <div v-for="(line, index) in form.lines" :key="index" style="display:grid;grid-template-columns:110px 150px 1fr 70px;gap:8px;margin-bottom:8px">
+            <div v-for="(line, index) in form.lines" :key="index" style="display:grid;grid-template-columns:110px 150px minmax(150px, 1fr) 160px 70px;gap:8px;margin-bottom:8px">
               <el-input v-model="line.size" placeholder="尺码" />
               <el-input-number v-model="line.quantity" :min="0" style="width:150px" />
               <el-input v-model="line.customer_sku" placeholder="客户 SKU（客户提供才填）" />
+              <el-input-number v-model="line.unit_price" :min="0" :precision="2" :step="0.01" placeholder="商品单价（可留空）" style="width:160px" />
               <el-button type="danger" link @click="removeLine(index)">删除</el-button>
             </div>
             <el-button @click="addLine">增加尺码</el-button>
