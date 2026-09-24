@@ -61,6 +61,8 @@ from app.services.orders import (
 )
 from app.services.sales_orders import (
     create_sales_order,
+    money_from_cents,
+    order_line_amount_cents,
     order_price_summary,
     update_order_line_unit_price,
     update_sales_order_customer_no,
@@ -197,7 +199,10 @@ def _sales_order_dict(
                 "quantity": line.quantity,
                 "customer_sku": line.customer_sku or "",
                 "unit_price": _money_string(line.unit_price),
-                "line_amount": _money_string(line.quantity * line.unit_price) if line.unit_price is not None else None,
+                "line_amount": (
+                    _money_string(money_from_cents(order_line_amount_cents(line.quantity, line.unit_price)))
+                    if line.unit_price is not None else None
+                ),
                 **({"totals": totals_by_line[line.id]} if totals_by_line is not None else {}),
             }
             for line in order.lines

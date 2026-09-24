@@ -195,3 +195,30 @@ def test_create_formal_order_rejects_invalid_price_before_writing(db_session):
         )
 
     assert db_session.query(SalesOrder).count() == 0
+
+
+def test_order_price_summary_keeps_cents_with_large_quantity(db_session):
+    company = Company(name="精度测试", code="PREC", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+
+    order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "",
+        "",
+        "2026-09-24",
+        [
+            {"size": "S", "quantity": 99999999999999999, "unit_price": "9999999999.99"},
+            {"size": "M", "quantity": 1, "unit_price": "0.02"},
+        ],
+    )
+
+    assert order_price_summary(order) == {
+        "known_subtotal": Decimal("999999999998999990000000000.03"),
+        "missing_price_count": 0,
+        "is_complete": True,
+        "total_amount": Decimal("999999999998999990000000000.03"),
+    }

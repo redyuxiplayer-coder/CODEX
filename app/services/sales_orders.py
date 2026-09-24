@@ -28,12 +28,24 @@ def parse_unit_price(value: object) -> Decimal | None:
     return price.quantize(PRICE_QUANTUM)
 
 
+def order_line_amount_cents(quantity: int, unit_price: Decimal) -> int:
+    return int(unit_price * 100) * quantity
+
+
+def money_from_cents(cents: int) -> Decimal:
+    sign = "-" if cents < 0 else ""
+    whole, fraction = divmod(abs(cents), 100)
+    return Decimal(f"{sign}{whole}.{fraction:02d}")
+
+
 def order_price_summary(order: SalesOrder) -> dict:
     active = [line for line in order.lines if line.is_active]
-    known = sum(
-        (line.quantity * line.unit_price for line in active if line.unit_price is not None),
-        Decimal("0.00"),
+    known_cents = sum(
+        order_line_amount_cents(line.quantity, line.unit_price)
+        for line in active
+        if line.unit_price is not None
     )
+    known = money_from_cents(known_cents)
     missing = sum(1 for line in active if line.unit_price is None)
     return {
         "known_subtotal": known,

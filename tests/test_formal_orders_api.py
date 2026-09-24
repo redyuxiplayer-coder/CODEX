@@ -322,6 +322,32 @@ def test_price_summary_ignores_inactive_lines(db_session):
     }
 
 
+def test_price_detail_keeps_cents_with_large_quantity(db_session):
+    client = _client(db_session)
+    company = Company(name="精度测试", code="PREC", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session, company.id, spu.id, "", "", "2026-09-24",
+        [
+            {"size": "S", "quantity": 99999999999999999, "unit_price": "9999999999.99"},
+            {"size": "M", "quantity": 1, "unit_price": "0.02"},
+        ],
+    )
+
+    response = client.get(f"/api/v1/sales-orders/{order.id}")
+
+    assert response.status_code == 200
+    assert response.json()["lines"][0]["line_amount"] == "999999999998999990000000000.01"
+    assert response.json()["price_summary"] == {
+        "known_subtotal": "999999999998999990000000000.03",
+        "missing_price_count": 0,
+        "is_complete": True,
+        "total_amount": "999999999998999990000000000.03",
+    }
+
+
 def test_price_update_rejects_wrong_order_and_invalid_value(db_session):
     client = _client(db_session)
     company = Company(name="价格测试", code="P", next_order_sequence=1)
