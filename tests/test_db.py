@@ -1,8 +1,11 @@
-from app.db import engine_kwargs_for_url, ensure_schema_updates, needs_local_storage
-from sqlalchemy import Numeric, create_engine, inspect, text
+from decimal import Decimal
 from pathlib import Path
 
-from app.db import Base
+import pytest
+from sqlalchemy import Numeric, create_engine, insert, inspect, text
+from sqlalchemy.exc import IntegrityError
+
+from app.db import Base, engine_kwargs_for_url, ensure_schema_updates, needs_local_storage
 from app import models  # noqa: F401
 
 
@@ -69,6 +72,24 @@ def test_new_order_lines_have_nullable_fixed_point_unit_price():
     assert isinstance(unit_price["type"], Numeric)
     assert unit_price["type"].precision == 12
     assert unit_price["type"].scale == 2
+
+
+def test_new_order_lines_reject_negative_unit_price():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        with pytest.raises(IntegrityError, match="ck_order_lines_unit_price_nonnegative"):
+            connection.execute(
+                insert(models.OrderLine).values(
+                    company_id=1,
+                    product_name="Test product",
+                    style_name="Test style",
+                    size="M",
+                    quantity=1,
+                    unit_price=Decimal("-0.01"),
+                )
+            )
 
 
 def test_sales_order_archive_table_tracks_archive_and_restore_history():
@@ -172,6 +193,7 @@ def test_postgres_order_line_price_migration_is_idempotent_and_nonnegative():
     assert "ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12, 2)" in migration
     assert "ck_order_lines_unit_price_nonnegative" in migration
     assert "IF NOT EXISTS (" in migration
+    assert "conrelid = 'order_lines'::regclass" in migration
     assert "CHECK (unit_price IS NULL OR unit_price >= 0)" in migration
 
 

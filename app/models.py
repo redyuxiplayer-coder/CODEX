@@ -1,7 +1,18 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -90,6 +101,9 @@ class SalesOrderArchive(Base):
 
 class OrderLine(Base):
     __tablename__ = "order_lines"
+    __table_args__ = (
+        CheckConstraint("unit_price IS NULL OR unit_price >= 0", name="ck_order_lines_unit_price_nonnegative"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("sales_orders.id"), nullable=True, index=True)
