@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import OrderLine from "./OrderLine.vue";
-import { formatMoney, priceStatusText } from "../order-pricing.js";
+import { createPriceSaveSession, formatMoney, priceStatusText } from "../order-pricing.js";
 import {
   archiveSalesOrder,
   fetchSalesOrder,
@@ -25,19 +25,25 @@ const savingCustomerNo = ref(false);
 const editingPriceLineId = ref(null);
 const priceDraft = ref(null);
 const savingPrice = ref(false);
+const priceSaveSession = createPriceSaveSession();
+let priceOrderId = props.id;
 let loadVersion = 0;
 
 async function load() {
   const version = ++loadVersion;
   const orderId = props.id;
+  if (String(priceOrderId) !== String(orderId)) {
+    priceSaveSession.invalidate();
+    priceOrderId = orderId;
+    editingPriceLineId.value = null;
+    priceDraft.value = null;
+    savingPrice.value = false;
+  }
   if (order.value && String(order.value.id) !== String(orderId)) {
     order.value = null;
     selectedLineId.value = null;
     editingCustomerNo.value = false;
     customerNoDraft.value = "";
-    editingPriceLineId.value = null;
-    priceDraft.value = null;
-    savingPrice.value = false;
   }
   const result = await fetchSalesOrder(orderId);
   if (version !== loadVersion || String(props.id) !== String(orderId)) return;
@@ -139,37 +145,43 @@ async function saveCustomerNo() {
 }
 
 function startEditPrice(line) {
+  if (savingPrice.value) return;
+  priceSaveSession.invalidate();
   editingPriceLineId.value = line.id;
   priceDraft.value = line.unit_price === null ? null : Number(line.unit_price);
 }
 
 function cancelEditPrice() {
+  priceSaveSession.invalidate();
   editingPriceLineId.value = null;
   priceDraft.value = null;
+  savingPrice.value = false;
 }
 
 async function savePrice(line) {
   const orderId = order.value?.id;
   const lineId = line.id;
   if (!orderId || String(props.id) !== String(orderId) || editingPriceLineId.value !== lineId || savingPrice.value) return;
+  const token = priceSaveSession.capture();
+  const unitPrice = priceDraft.value === "" || priceDraft.value == null ? null : priceDraft.value;
   savingPrice.value = true;
-  try {
-    const unitPrice = priceDraft.value === "" || priceDraft.value == null ? null : priceDraft.value;
-    await updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice);
-    if (String(props.id) !== String(orderId)) return;
-    await load();
-    if (String(props.id) !== String(orderId) || editingPriceLineId.value !== lineId) return;
-    cancelEditPrice();
-    ElMessage.success("商品单价已保存");
-  } catch (error) {
-    if (String(props.id) === String(orderId)) ElMessage.error(error.message);
-  } finally {
-    if (String(props.id) === String(orderId)) savingPrice.value = false;
-  }
+  await priceSaveSession.run(token, {
+    update: () => updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice),
+    reload: load,
+    isCurrent: () => String(props.id) === String(orderId) && editingPriceLineId.value === lineId,
+    onSuccess: () => {
+      savingPrice.value = false;
+      editingPriceLineId.value = null;
+      priceDraft.value = null;
+      ElMessage.success("商品单价已保存");
+    },
+    onError: (error) => ElMessage.error(error.message),
+    onSettled: () => { savingPrice.value = false; },
+  });
 }
 
 onMounted(load);
-watch(() => props.id, load);
+watch(() => props.id, load, { flush: "sync" });
 watch(() => route.query.line, (lineId) => {
   const match = order.value?.lines.find((line) => line.id === Number(lineId));
   if (match) selectedLineId.value = match.id;

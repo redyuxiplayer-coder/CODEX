@@ -10,3 +10,25 @@ export function priceStatusText(summary) {
   if (summary.is_complete) return `订单总金额 ${formatMoney(summary.total_amount)}`;
   return `总金额待补全；已填写小计 ${formatMoney(summary.known_subtotal)}；${summary.missing_price_count} 个尺码未填写`;
 }
+
+export function createPriceSaveSession() {
+  let generation = 0;
+  return {
+    capture() { return generation; },
+    invalidate() { generation += 1; },
+    async run(token, { update, reload, onSuccess, onError, onSettled, isCurrent = () => true }) {
+      const current = () => token === generation && isCurrent();
+      try {
+        await update();
+        if (!current()) return;
+        await reload();
+        if (!current()) return;
+        onSuccess();
+      } catch (error) {
+        if (current()) onError(error);
+      } finally {
+        if (current()) onSettled();
+      }
+    },
+  };
+}
