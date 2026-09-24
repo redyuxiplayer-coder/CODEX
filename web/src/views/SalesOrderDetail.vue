@@ -24,6 +24,7 @@ const customerNoDraft = ref("");
 const savingCustomerNo = ref(false);
 const editingPriceLineId = ref(null);
 const priceDraft = ref(null);
+const priceConflictLineId = ref(null);
 const savingPrice = ref(false);
 const priceSaveSession = createPriceSaveSession();
 let priceOrderId = props.id;
@@ -37,6 +38,7 @@ async function load() {
     priceOrderId = orderId;
     editingPriceLineId.value = null;
     priceDraft.value = null;
+    priceConflictLineId.value = null;
     savingPrice.value = false;
   }
   if (order.value && String(order.value.id) !== String(orderId)) {
@@ -149,12 +151,14 @@ function startEditPrice(line) {
   priceSaveSession.invalidate();
   editingPriceLineId.value = line.id;
   priceDraft.value = line.unit_price === null ? null : Number(line.unit_price);
+  priceConflictLineId.value = null;
 }
 
 function cancelEditPrice() {
   priceSaveSession.invalidate();
   editingPriceLineId.value = null;
   priceDraft.value = null;
+  priceConflictLineId.value = null;
   savingPrice.value = false;
 }
 
@@ -164,17 +168,24 @@ async function savePrice(line) {
   if (!orderId || String(props.id) !== String(orderId) || editingPriceLineId.value !== lineId || savingPrice.value) return;
   const token = priceSaveSession.capture();
   const unitPrice = priceDraft.value === "" || priceDraft.value == null ? null : priceDraft.value;
+  const expectedUnitPrice = line.unit_price;
   savingPrice.value = true;
   await priceSaveSession.run(token, {
-    update: () => updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice),
+    update: () => updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice, expectedUnitPrice),
     reload: load,
     isCurrent: () => String(props.id) === String(orderId) && editingPriceLineId.value === lineId,
     onSuccess: () => {
       savingPrice.value = false;
       editingPriceLineId.value = null;
       priceDraft.value = null;
+      priceConflictLineId.value = null;
       ElMessage.success("商品单价已保存");
     },
+    onConflict: () => {
+      priceConflictLineId.value = lineId;
+      ElMessage.warning("单价已被其他人修改，已刷新当前价格。请核对后再保存");
+    },
+    onConflictReloadError: () => ElMessage.error("单价已被其他人修改，但刷新订单失败。请刷新页面后重试"),
     onError: (error) => ElMessage.error(error.message),
     onSettled: () => { savingPrice.value = false; },
   });
@@ -268,10 +279,11 @@ watch(() => route.query.line, (lineId) => {
         <el-table-column prop="totals.adjusted" label="核销/调整" width="105" />
         <el-table-column prop="totals.closed" label="关闭" width="90" />
         <el-table-column prop="totals.remaining" label="还差" width="90" />
-        <el-table-column label="商品单价" min-width="260">
+        <el-table-column label="商品单价" min-width="370">
           <template #default="{ row }">
             <template v-if="editingPriceLineId === row.id">
               <el-input-number v-model="priceDraft" :min="0" :precision="2" :step="0.01" placeholder="未填写" size="small" style="width:145px" />
+              <span v-if="priceConflictLineId === row.id">当前单价：{{ formatMoney(row.unit_price) }}</span>
               <el-button type="primary" link size="small" :loading="savingPrice" @click="savePrice(row)">保存</el-button>
               <el-button link size="small" :disabled="savingPrice" @click="cancelEditPrice">取消</el-button>
             </template>

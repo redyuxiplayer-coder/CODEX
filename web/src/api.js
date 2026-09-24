@@ -5,7 +5,9 @@ async function request(path, options = {}) {
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || "请求失败");
+    const error = new Error(data.detail || "请求失败");
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
@@ -105,9 +107,10 @@ export function updateSalesOrderCustomerNo(orderId, customerOrderNo) {
   });
 }
 
-export function updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice) {
+export function updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice, expectedUnitPrice) {
   return postJson(`/api/v1/sales-orders/${orderId}/lines/${lineId}/unit-price`, {
     unit_price: unitPrice,
+    expected_unit_price: expectedUnitPrice,
   });
 }
 

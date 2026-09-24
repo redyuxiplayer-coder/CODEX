@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { updateSalesOrderLineUnitPrice } from "./api.js";
 import { createPriceSaveSession, formatMoney, priceStatusText } from "./order-pricing.js";
 
 function deferred() {
@@ -110,4 +111,101 @@ test("switching orders during reload suppresses the old success and cleanup", as
   reload.resolve();
   await save;
   assert.deepEqual(effects, ["reload"]);
+});
+
+test("price update payload keeps unknown and confirmed zero previous prices distinct", async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (_path, options) => {
+    bodies.push(JSON.parse(options.body));
+    return new Response("{}", { status: 200 });
+  };
+  try {
+    await updateSalesOrderLineUnitPrice(7, 42, 0, null);
+    await updateSalesOrderLineUnitPrice(7, 42, null, "0.00");
+    assert.deepEqual(bodies, [
+      { unit_price: 0, expected_unit_price: null },
+      { unit_price: null, expected_unit_price: "0.00" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("price update exposes a 409 response status to the editor", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ detail: "单价已变更" }), { status: 409 });
+  try {
+    await assert.rejects(
+      updateSalesOrderLineUnitPrice(7, 42, "9.99", null),
+      (error) => error.status === 409 && error.message === "单价已变更",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("an active price conflict reloads current data and keeps the editor open", async () => {
+  const session = createPriceSaveSession();
+  const conflict = Object.assign(new Error("单价已变更"), { status: 409 });
+  const effects = [];
+  let editorOpen = true;
+  let saving = true;
+  await session.run(session.capture(), {
+    update: () => Promise.reject(conflict),
+    reload: () => { effects.push("reload"); },
+    onConflict: () => effects.push("conflict message"),
+    onSuccess: () => { editorOpen = false; },
+    onError: () => effects.push("generic error"),
+    onSettled: () => { saving = false; effects.push("settled"); },
+  });
+  assert.deepEqual(effects, ["reload", "conflict message", "settled"]);
+  assert.equal(editorOpen, true);
+  assert.equal(saving, false);
+});
+
+test("a stale conflict cannot refresh or message a reopened editor", async () => {
+  const session = createPriceSaveSession();
+  const update = deferred();
+  const effects = [];
+  const save = session.run(session.capture(), {
+    update: () => update.promise,
+    reload: () => effects.push("reload"),
+    onConflict: () => effects.push("conflict message"),
+    onSuccess: () => effects.push("success"),
+    onError: () => effects.push("generic error"),
+    onSettled: () => effects.push("settled"),
+  });
+  session.invalidate();
+  update.reject(Object.assign(new Error("单价已变更"), { status: 409 }));
+  await save;
+  assert.deepEqual(effects, []);
+});
+
+test("navigation during conflict refresh suppresses the old message and loading cleanup", async () => {
+  const session = createPriceSaveSession();
+  const refresh = deferred();
+  const refreshStarted = deferred();
+  const effects = [];
+  const save = session.run(session.capture(), {
+    update: () => Promise.reject(Object.assign(new Error("单价已变更"), { status: 409 })),
+    reload: () => { refreshStarted.resolve(); return refresh.promise; },
+    onConflict: () => effects.push("conflict message"),
+    onSuccess: () => effects.push("success"),
+    onError: () => effects.push("generic error"),
+    onSettled: () => effects.push("settled"),
+  });
+  let timeout;
+  try {
+    await Promise.race([
+      refreshStarted.promise,
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("conflict reload not started")), 250); }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+  session.invalidate();
+  refresh.resolve();
+  await save;
+  assert.deepEqual(effects, []);
 });

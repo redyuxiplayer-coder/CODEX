@@ -16,7 +16,7 @@ export function createPriceSaveSession() {
   return {
     capture() { return generation; },
     invalidate() { generation += 1; },
-    async run(token, { update, reload, onSuccess, onError, onSettled, isCurrent = () => true }) {
+    async run(token, { update, reload, onSuccess, onConflict, onConflictReloadError, onError, onSettled, isCurrent = () => true }) {
       const current = () => token === generation && isCurrent();
       try {
         await update();
@@ -25,7 +25,17 @@ export function createPriceSaveSession() {
         if (!current()) return;
         onSuccess();
       } catch (error) {
-        if (current()) onError(error);
+        if (!current()) return;
+        if (error.status === 409 && onConflict) {
+          try {
+            await reload();
+            if (current()) onConflict(error);
+          } catch (reloadError) {
+            if (current()) (onConflictReloadError || onError)(reloadError);
+          }
+        } else {
+          onError(error);
+        }
       } finally {
         if (current()) onSettled();
       }
