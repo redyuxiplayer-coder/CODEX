@@ -1,8 +1,65 @@
+from decimal import Decimal, InvalidOperation
+
 from sqlalchemy.orm import Session
 
 from app.models import Company, OrderLine, SalesOrder, Spu
 from app.services.quantities import parse_quantity
 from app.services.spus import normalize_code
+
+
+PRICE_QUANTUM = Decimal("0.01")
+MAX_UNIT_PRICE = Decimal("9999999999.99")
+
+
+def parse_unit_price(value: object) -> Decimal | None:
+    if value is None or isinstance(value, str) and not value.strip():
+        return None
+    try:
+        price = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError("单价格式无效") from exc
+    if (
+        not price.is_finite()
+        or price < 0
+        or price > MAX_UNIT_PRICE
+        or price.as_tuple().exponent < -2
+    ):
+        raise ValueError("单价必须为 0 到 9999999999.99 之间且最多两位小数")
+    return price.quantize(PRICE_QUANTUM)
+
+
+def order_price_summary(order: SalesOrder) -> dict:
+    active = [line for line in order.lines if line.is_active]
+    known = sum(
+        (line.quantity * line.unit_price for line in active if line.unit_price is not None),
+        Decimal("0.00"),
+    )
+    missing = sum(1 for line in active if line.unit_price is None)
+    return {
+        "known_subtotal": known,
+        "missing_price_count": missing,
+        "is_complete": missing == 0,
+        "total_amount": known if missing == 0 else None,
+    }
+
+
+def update_order_line_unit_price(
+    session: Session,
+    order_id: int,
+    line_id: int,
+    value: object,
+) -> tuple[OrderLine, Decimal | None]:
+    order = session.get(SalesOrder, int(order_id))
+    if order is None:
+        raise ValueError("订单不存在")
+    line = session.get(OrderLine, int(line_id))
+    if line is None or line.order_id != order.id:
+        raise ValueError("订单行不存在或不属于该订单")
+    price = parse_unit_price(value)
+    before = line.unit_price
+    line.unit_price = price
+    session.flush()
+    return line, before
 
 
 def build_system_order_no(
@@ -33,6 +90,7 @@ def _clean_order_lines(lines: list[dict]) -> list[dict]:
                 "size": size,
                 "quantity": quantity,
                 "customer_sku": str(raw.get("customer_sku") or "").strip(),
+                "unit_price": parse_unit_price(raw.get("unit_price")),
             }
         )
     if not cleaned:
@@ -111,6 +169,7 @@ def create_sales_order(
                 batch=order.system_order_no,
                 sku="",
                 customer_sku=row["customer_sku"],
+                unit_price=row["unit_price"],
                 is_active=True,
             )
         )

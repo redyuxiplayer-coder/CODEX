@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -58,7 +59,12 @@ from app.services.orders import (
     get_order_balances,
     get_order_choices,
 )
-from app.services.sales_orders import create_sales_order, update_sales_order_customer_no
+from app.services.sales_orders import (
+    create_sales_order,
+    order_price_summary,
+    update_order_line_unit_price,
+    update_sales_order_customer_no,
+)
 from app.services.spus import create_spu, normalize_code
 from app.services.photos import save_uploads
 from app.services.returns import (
@@ -109,6 +115,7 @@ class SalesOrderLinePayload(BaseModel):
     size: str
     quantity: int
     customer_sku: str = ""
+    unit_price: str | Decimal | None = None
 
 
 class SalesOrderPayload(BaseModel):
@@ -125,6 +132,10 @@ class SalesOrderPayload(BaseModel):
 
 class CustomerOrderNoPayload(BaseModel):
     customer_order_no: str = ""
+
+
+class UnitPricePayload(BaseModel):
+    unit_price: str | Decimal | None
 
 
 class ShipDatePayload(BaseModel):
@@ -163,6 +174,7 @@ def _sales_order_dict(
         "current_archive": None,
         "history": [],
     }
+    price_summary = order_price_summary(order)
     return {
         "id": order.id,
         "system_order_no": order.system_order_no,
@@ -184,12 +196,24 @@ def _sales_order_dict(
                 "size": line.size,
                 "quantity": line.quantity,
                 "customer_sku": line.customer_sku or "",
+                "unit_price": _money_string(line.unit_price),
+                "line_amount": _money_string(line.quantity * line.unit_price) if line.unit_price is not None else None,
                 **({"totals": totals_by_line[line.id]} if totals_by_line is not None else {}),
             }
             for line in order.lines
         ],
+        "price_summary": {
+            "known_subtotal": _money_string(price_summary["known_subtotal"]),
+            "missing_price_count": price_summary["missing_price_count"],
+            "is_complete": price_summary["is_complete"],
+            "total_amount": _money_string(price_summary["total_amount"]),
+        },
         **archive_info,
     }
+
+
+def _money_string(value: Decimal | None) -> str | None:
+    return format(value, ".2f") if value is not None else None
 
 
 def _status_rank(row: dict) -> int:
@@ -758,6 +782,50 @@ def api_update_sales_order_customer_no(
     )
     session.commit()
     return _sales_order_dict(order, archive_state(session, order))
+
+
+@router.post("/sales-orders/{order_id}/lines/{line_id}/unit-price")
+def api_update_order_line_unit_price(
+    request: Request,
+    order_id: int,
+    line_id: int,
+    payload: UnitPricePayload,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    try:
+        line, before = update_order_line_unit_price(session, order_id, line_id, payload.unit_price)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    order = line.order
+    try:
+        session.add(
+            OperationLog(
+                actor_id=admin.id,
+                action="order_line_unit_price_update",
+                target=order.system_order_no,
+                detail=json.dumps(
+                    {
+                        "order_id": order.id,
+                        "line_id": line.id,
+                        "size": line.size,
+                        "before": _money_string(before),
+                        "after": _money_string(line.unit_price),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return _sales_order_dict(
+        order,
+        archive_state(session, order),
+        {row.id: order_line_totals(session, row.id) for row in order.lines},
+    )
 
 
 @router.post("/sales-orders")

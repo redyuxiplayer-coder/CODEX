@@ -1,5 +1,9 @@
+from decimal import Decimal
+
+import pytest
+
 from app.models import Company, OrderLine, SalesOrder, Spu
-from app.services.sales_orders import create_sales_order
+from app.services.sales_orders import create_sales_order, order_price_summary, parse_unit_price
 from app.services.spus import create_spu
 
 
@@ -117,3 +121,77 @@ def test_order_rejects_mixed_color_fields_and_duplicate_sizes(db_session):
             "2026-08-09",
             [{"size": "S", "quantity": 100}, {"size": "S", "quantity": 50}],
         )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", None),
+        ("  ", None),
+        (0, Decimal("0.00")),
+        ("12.30", Decimal("12.30")),
+        (12.3, Decimal("12.30")),
+        ("9999999999.99", Decimal("9999999999.99")),
+    ],
+)
+def test_parse_unit_price_accepts_blank_and_valid_money(value, expected):
+    assert parse_unit_price(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["-0.01", "12.345", "1.000", "not money", "NaN", "Infinity", "10000000000", True],
+)
+def test_parse_unit_price_rejects_invalid_money(value):
+    with pytest.raises(ValueError, match="单价"):
+        parse_unit_price(value)
+
+
+def test_create_formal_order_preserves_filled_zero_and_missing_prices(db_session):
+    company = Company(name="价格测试", code="PRICE", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+
+    order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "",
+        "",
+        "2026-09-24",
+        [
+            {"size": "S", "quantity": 100, "unit_price": "12.30"},
+            {"size": "M", "quantity": 2, "unit_price": 0},
+            {"size": "L", "quantity": 1},
+        ],
+    )
+
+    assert [line.unit_price for line in order.lines] == [Decimal("12.30"), Decimal("0.00"), None]
+    assert order_price_summary(order) == {
+        "known_subtotal": Decimal("1230.00"),
+        "missing_price_count": 1,
+        "is_complete": False,
+        "total_amount": None,
+    }
+
+
+def test_create_formal_order_rejects_invalid_price_before_writing(db_session):
+    company = Company(name="价格测试", code="PRICE", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="单价"):
+        create_sales_order(
+            db_session,
+            company.id,
+            spu.id,
+            "",
+            "",
+            "2026-09-24",
+            [{"size": "S", "quantity": 1, "unit_price": "12.345"}],
+        )
+
+    assert db_session.query(SalesOrder).count() == 0

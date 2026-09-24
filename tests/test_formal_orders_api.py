@@ -1,10 +1,14 @@
 import json
+from decimal import Decimal
+
+import pytest
+from sqlalchemy import event
 
 from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import create_app
-from app.models import Company, OperationLog, SalesOrder, SalesOrderArchive, Spu, User
+from app.models import Company, OperationLog, OrderLine, SalesOrder, SalesOrderArchive, Spu, User
 from app.services.sales_orders import create_sales_order
 from app.services.shipments import submit_shipment_report
 
@@ -204,7 +208,7 @@ def test_create_sales_order_api_returns_generated_number(db_session):
             "delivery_date": "2026-08-20",
             "note": "首批",
             "lines": [
-                {"size": "S", "quantity": 100, "customer_sku": "FZB1209001-01-red-S"},
+                {"size": "S", "quantity": 100, "customer_sku": "FZB1209001-01-red-S", "unit_price": "12.30"},
                 {"size": "M", "quantity": 80, "customer_sku": ""},
             ],
         },
@@ -216,13 +220,177 @@ def test_create_sales_order_api_returns_generated_number(db_session):
     assert payload["customer_order_no"] == "客户单-88"
     assert payload["spu"]["code"] == "JS"
     assert payload["lines"] == [
-        {"id": payload["lines"][0]["id"], "size": "S", "quantity": 100, "customer_sku": "FZB1209001-01-red-S"},
-        {"id": payload["lines"][1]["id"], "size": "M", "quantity": 80, "customer_sku": ""},
+        {"id": payload["lines"][0]["id"], "size": "S", "quantity": 100, "customer_sku": "FZB1209001-01-red-S", "unit_price": "12.30", "line_amount": "1230.00"},
+        {"id": payload["lines"][1]["id"], "size": "M", "quantity": 80, "customer_sku": "", "unit_price": None, "line_amount": None},
     ]
+    assert payload["price_summary"] == {
+        "known_subtotal": "1230.00",
+        "missing_price_count": 1,
+        "is_complete": False,
+        "total_amount": None,
+    }
 
     detail = client.get(f"/api/v1/sales-orders/{payload['id']}")
     assert detail.status_code == 200
     assert detail.json()["system_order_no"] == "YXF-00001-JS-RED"
+
+
+def test_price_update_completes_order_and_records_audit(db_session):
+    client = _client(db_session)
+    company = Company(name="价格测试", code="P", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session, company.id, spu.id, "", "", "2026-09-24",
+        [{"size": "S", "quantity": 100, "unit_price": "12.30"}, {"size": "M", "quantity": 2}],
+    )
+    line = order.lines[1]
+
+    initial = client.get(f"/api/v1/sales-orders/{order.id}")
+    assert initial.status_code == 200
+    assert initial.json()["lines"][0]["unit_price"] == "12.30"
+    assert initial.json()["lines"][0]["line_amount"] == "1230.00"
+    assert initial.json()["price_summary"] == {
+        "known_subtotal": "1230.00",
+        "missing_price_count": 1,
+        "is_complete": False,
+        "total_amount": None,
+    }
+
+    response = client.post(
+        f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
+        json={"unit_price": 0},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["lines"][1]["unit_price"] == "0.00"
+    assert payload["lines"][1]["line_amount"] == "0.00"
+    assert payload["price_summary"] == {
+        "known_subtotal": "1230.00",
+        "missing_price_count": 0,
+        "is_complete": True,
+        "total_amount": "1230.00",
+    }
+    assert db_session.get(OrderLine, line.id).unit_price == Decimal("0.00")
+    log = db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").one()
+    assert log.target == order.system_order_no
+    assert log.actor_id == db_session.query(User).filter_by(username="formal_order_admin").one().id
+    assert log.created_at is not None
+    assert json.loads(log.detail) == {
+        "order_id": order.id,
+        "line_id": line.id,
+        "size": "M",
+        "before": None,
+        "after": "0.00",
+    }
+
+    cleared = client.post(
+        f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
+        json={"unit_price": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["price_summary"]["total_amount"] is None
+    assert db_session.get(OrderLine, line.id).unit_price is None
+    clear_log = json.loads(db_session.query(OperationLog).order_by(OperationLog.id.desc()).first().detail)
+    assert clear_log["before"] == "0.00"
+    assert clear_log["after"] is None
+
+
+def test_price_summary_ignores_inactive_lines(db_session):
+    client = _client(db_session)
+    company = Company(name="价格测试", code="P", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session, company.id, spu.id, "", "", "2026-09-24",
+        [{"size": "S", "quantity": 2, "unit_price": "12.30"}, {"size": "M", "quantity": 2}],
+    )
+    order.lines[1].is_active = False
+    db_session.commit()
+
+    response = client.get(f"/api/v1/sales-orders/{order.id}")
+
+    assert response.status_code == 200
+    assert response.json()["price_summary"] == {
+        "known_subtotal": "24.60",
+        "missing_price_count": 0,
+        "is_complete": True,
+        "total_amount": "24.60",
+    }
+
+
+def test_price_update_rejects_wrong_order_and_invalid_value(db_session):
+    client = _client(db_session)
+    company = Company(name="价格测试", code="P", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    first = create_sales_order(db_session, company.id, spu.id, "", "", "2026-09-24", [{"size": "S", "quantity": 1}])
+    second = create_sales_order(db_session, company.id, spu.id, "", "", "2026-09-24", [{"size": "M", "quantity": 1}])
+    line = first.lines[0]
+
+    wrong_order = client.post(
+        f"/api/v1/sales-orders/{second.id}/lines/{line.id}/unit-price",
+        json={"unit_price": "9.99"},
+    )
+    invalid_price = client.post(
+        f"/api/v1/sales-orders/{first.id}/lines/{line.id}/unit-price",
+        json={"unit_price": "9.999"},
+    )
+
+    assert wrong_order.status_code == 400
+    assert invalid_price.status_code == 400
+    assert db_session.get(OrderLine, line.id).unit_price is None
+    assert db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").count() == 0
+
+
+def test_worker_cannot_read_or_update_order_prices(db_session):
+    client = _client(db_session)
+    order = _seed_formal_order(db_session)
+    worker = User(username="price_worker", display_name="员工", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    client.cookies.set("zy_user_id", str(worker.id))
+
+    detail = client.get(f"/api/v1/sales-orders/{order.id}")
+    update = client.post(
+        f"/api/v1/sales-orders/{order.id}/lines/1/unit-price",
+        json={"unit_price": "12.30"},
+    )
+
+    assert detail.status_code == 403
+    assert update.status_code == 403
+
+
+def test_price_update_rolls_back_when_audit_insert_fails(db_session):
+    client = _client(db_session)
+    company = Company(name="价格测试", code="P", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(db_session, company.id, spu.id, "", "", "2026-09-24", [{"size": "S", "quantity": 1}])
+    line = order.lines[0]
+
+    def fail_audit(_mapper, _connection, target):
+        if target.action == "order_line_unit_price_update":
+            raise RuntimeError("audit insert failed")
+
+    event.listen(OperationLog, "before_insert", fail_audit)
+    try:
+        with pytest.raises(RuntimeError, match="audit insert failed"):
+            client.post(
+                f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
+                json={"unit_price": "12.30"},
+            )
+    finally:
+        event.remove(OperationLog, "before_insert", fail_audit)
+
+    db_session.expire_all()
+    assert db_session.get(OrderLine, line.id).unit_price is None
+    assert db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").count() == 0
 
 
 def test_company_and_spu_lists_return_master_data(db_session):
