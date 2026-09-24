@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -97,6 +98,7 @@ class OrderLine(Base):
     style_name: Mapped[str] = mapped_column(String(160), index=True)
     size: Mapped[str] = mapped_column(String(80), index=True)
     quantity: Mapped[int] = mapped_column(Integer)
+    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     order_date: Mapped[str] = mapped_column(String(30), default="")
     delivery_date: Mapped[str] = mapped_column(String(80), default="")
     note: Mapped[str] = mapped_column(Text, default="")

@@ -84,6 +84,7 @@ def ensure_schema_updates(target_engine=None) -> None:
             "sku": "VARCHAR(255) DEFAULT ''",
             "order_id": "INTEGER",
             "customer_sku": "VARCHAR(255) DEFAULT ''",
+            "unit_price": "NUMERIC(12, 2)",
         },
     )
     add_columns("sku_mappings", {"barcode": "VARCHAR(255) DEFAULT ''"})

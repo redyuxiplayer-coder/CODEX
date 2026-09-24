@@ -1,5 +1,5 @@
 from app.db import engine_kwargs_for_url, ensure_schema_updates, needs_local_storage
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import Numeric, create_engine, inspect, text
 from pathlib import Path
 
 from app.db import Base
@@ -57,6 +57,20 @@ def test_formal_order_tables_and_columns_are_registered():
     assert "order_id" in report_columns
 
 
+def test_new_order_lines_have_nullable_fixed_point_unit_price():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+
+    unit_price = next(
+        column for column in inspect(engine).get_columns("order_lines")
+        if column["name"] == "unit_price"
+    )
+    assert unit_price["nullable"] is True
+    assert isinstance(unit_price["type"], Numeric)
+    assert unit_price["type"].precision == 12
+    assert unit_price["type"].scale == 2
+
+
 def test_sales_order_archive_table_tracks_archive_and_restore_history():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
@@ -108,6 +122,28 @@ def test_schema_updates_add_formal_order_columns_to_legacy_sqlite():
     assert "order_id" in {c["name"] for c in inspector.get_columns("shipment_reports")}
 
 
+def test_schema_updates_add_nullable_unit_price_without_backfilling_legacy_rows():
+    legacy_engine = create_engine("sqlite:///:memory:")
+    with legacy_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE order_lines (id INTEGER PRIMARY KEY, quantity INTEGER)"
+        )
+        connection.exec_driver_sql("INSERT INTO order_lines (id, quantity) VALUES (1, 3)")
+
+    ensure_schema_updates(legacy_engine)
+    ensure_schema_updates(legacy_engine)
+
+    unit_price = next(
+        column for column in inspect(legacy_engine).get_columns("order_lines")
+        if column["name"] == "unit_price"
+    )
+    assert unit_price["nullable"] is True
+    with legacy_engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT unit_price FROM order_lines WHERE id = 1")
+        ).scalar_one() is None
+
+
 def test_postgres_formal_order_migration_contains_required_schema_and_grants():
     migration = Path("scripts/migration_2026_08_09_formal_orders.sql").read_text(encoding="utf-8")
 
@@ -128,6 +164,15 @@ def test_postgres_order_archive_migration_is_idempotent_and_grants_app_access():
     assert "CREATE INDEX IF NOT EXISTS ix_sales_order_archives_restored_at" in migration
     assert "GRANT ALL PRIVILEGES ON TABLE sales_order_archives TO zy_shipping" in migration
     assert "GRANT USAGE, SELECT ON SEQUENCE sales_order_archives_id_seq TO zy_shipping" in migration
+
+
+def test_postgres_order_line_price_migration_is_idempotent_and_nonnegative():
+    migration = Path("scripts/migration_2026_09_24_order_line_price.sql").read_text(encoding="utf-8")
+
+    assert "ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12, 2)" in migration
+    assert "ck_order_lines_unit_price_nonnegative" in migration
+    assert "IF NOT EXISTS (" in migration
+    assert "CHECK (unit_price IS NULL OR unit_price >= 0)" in migration
 
 
 def test_waybill_table_and_link_column_registered():
