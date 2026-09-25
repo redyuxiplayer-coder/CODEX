@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
 
 from app.db import get_session
@@ -53,6 +55,22 @@ def test_api_orders_balances_returns_rows_with_filters(db_session):
     assert all(row["remaining"] > 0 for row in payload["balances"])
     sizes = {row["size"] for row in payload["balances"]}
     assert sizes == {"S", "M"}
+
+
+def test_api_orders_balances_serializes_large_money_without_losing_cents(db_session):
+    client, _admin = _client(db_session)
+    line = create_order_line(
+        db_session, "精度公司", "产品", "款式", "S", 10001, "2026-09-24",
+    )
+    line.unit_price = Decimal("9999999999.99")
+    db_session.commit()
+
+    response = client.get("/api/v1/orders/balances?company=精度公司")
+
+    assert response.status_code == 200
+    row = response.json()["balances"][0]
+    assert row["unit_price"] == "9999999999.99"
+    assert row["line_amount"] == "100009999999899.99"
 
 
 def test_api_order_line_detail_includes_totals_ledger_and_returns(db_session):

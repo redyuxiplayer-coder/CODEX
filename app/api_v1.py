@@ -898,7 +898,14 @@ def api_orders_balances(
     return {
         "companies": companies,
         "item_choices": item_choices,
-        "balances": _sort_balances(rows),
+        "balances": [
+            {
+                **row,
+                "unit_price": _money_string(row["unit_price"]),
+                "line_amount": _money_string(row["line_amount"]),
+            }
+            for row in _sort_balances(rows)
+        ],
     }
 
 

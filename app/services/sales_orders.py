@@ -1,5 +1,6 @@
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models import Company, OrderLine, SalesOrder, Spu
@@ -76,24 +77,38 @@ def update_order_line_unit_price(
     order = session.get(SalesOrder, int(order_id))
     if order is None:
         raise OrderPriceTargetNotFoundError("订单不存在")
-    line = (
-        session.query(OrderLine)
-        .filter(OrderLine.id == int(line_id))
-        .with_for_update()
-        .populate_existing()
-        .one_or_none()
-    )
+    line = session.get(OrderLine, int(line_id))
     if line is None:
         raise OrderPriceTargetNotFoundError("订单行不存在")
     if line.order_id != order.id:
         raise ValueError("订单行不存在或不属于该订单")
-    before = parse_unit_price(line.unit_price)
-    if before != expected_price or line.price_revision != expected_revision:
+    price_matches = (
+        OrderLine.unit_price.is_(None)
+        if expected_price is None
+        else OrderLine.unit_price == expected_price
+    )
+    result = session.execute(
+        update(OrderLine)
+        .where(
+            OrderLine.id == int(line_id),
+            OrderLine.order_id == order.id,
+            price_matches,
+            OrderLine.price_revision == expected_revision,
+        )
+        .values(unit_price=price, price_revision=OrderLine.price_revision + 1)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        current_order_id = session.execute(
+            select(OrderLine.order_id).where(OrderLine.id == int(line_id))
+        ).scalar_one_or_none()
+        if current_order_id is None:
+            raise OrderPriceTargetNotFoundError("订单行不存在")
+        if current_order_id != order.id:
+            raise ValueError("订单行不存在或不属于该订单")
         raise StaleUnitPriceError("单价已变更，请刷新订单后重试")
-    line.unit_price = price
-    line.price_revision += 1
-    session.flush()
-    return line, before
+    session.refresh(line)
+    return line, expected_price
 
 
 def build_system_order_no(
