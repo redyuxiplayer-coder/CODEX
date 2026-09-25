@@ -1,8 +1,12 @@
+from decimal import Decimal
+from io import BytesIO
+
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 from app.db import get_session
 from app.main import create_app
-from app.models import OrderLine, ShipmentReport, User
+from app.models import OrderLine, ShipmentLine, ShipmentReport, User
 from app.services.orders import create_order_line
 from app.services.packing_drafts import create_packing_draft, submit_packing_draft
 from app.services.skus import upsert_sku_mapping
@@ -345,6 +349,59 @@ def test_export_route_returns_xlsx(db_session):
 
     assert response.status_code == 200
     assert "spreadsheetml" in response.headers.get("content-type", "")
+
+
+def test_unshipped_export_route_keeps_customer_price_private_and_internal_price_visible(db_session):
+    client, admin, _worker = _client(db_session)
+    open_line = create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100, batch="价格测试")
+    complete_line = create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "L", 20, batch="已完成")
+    other_company_line = create_order_line(db_session, "其他客户", "裁判", "圆领裁判", "S", 30)
+    open_line.unit_price = Decimal("12.30")
+    complete_line.unit_price = Decimal("20.00")
+    other_company_line.unit_price = Decimal("5.00")
+    report = ShipmentReport(
+        user_id=admin.id, ship_date="2026-08-04", company_name="源兴发",
+        product_name="裁判", style_name="圆领裁判", status="auto_approved",
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(ShipmentLine(report_id=report.id, order_line_id=complete_line.id, size="L", quantity=20))
+    db_session.commit()
+
+    for template in ("customer", "internal"):
+        response = client.post(
+            "/admin/export",
+            data={"template": template, "company": "源兴发", "export_type": "unshipped"},
+        )
+        assert response.status_code == 200
+        workbook = load_workbook(BytesIO(response.content))
+        assert workbook.sheetnames == ["未发货明细"]
+        sheet = workbook.active
+        headers = [cell.value for cell in sheet[1]]
+        rows = list(sheet.iter_rows(min_row=2, values_only=True))
+        if template == "customer":
+            assert headers == ["公司", "产品", "款式", "订单", "下单时间", "尺码", "SKU", "下单数量", "已发数量", "未发数量", "快递单号", "客户SKU"]
+            assert not {"商品单价", "单价", "金额", "订单总金额"}.intersection(headers)
+        assert len(rows) == 1
+        assert rows[0][headers.index("公司")] == "源兴发"
+        assert rows[0][headers.index("尺码")] == "M"
+        assert rows[0][headers.index("未发数量")] == 100
+        if template == "customer":
+            assert 12.3 not in rows[0]
+            assert 1230 not in rows[0]
+        else:
+            assert rows[0][headers.index("商品单价")] == 12.3
+            assert rows[0][headers.index("金额")] == 1230
+
+    all_customer_response = client.post(
+        "/admin/export",
+        data={"template": "customer", "company": "__all__", "export_type": "unshipped"},
+    )
+    assert all_customer_response.status_code == 200
+    all_customer_sheet = load_workbook(BytesIO(all_customer_response.content)).active
+    all_headers = [cell.value for cell in all_customer_sheet[1]]
+    assert not {"商品单价", "单价", "金额", "订单总金额"}.intersection(all_headers)
+    assert {row[all_headers.index("尺码")] for row in all_customer_sheet.iter_rows(min_row=2, values_only=True)} == {"M", "S"}
 
 
 def test_work_info_get_and_save(db_session):

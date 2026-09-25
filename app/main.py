@@ -42,6 +42,7 @@ from app.services.exports import (
     export_company_workbook,
     export_customer_company_workbook,
     export_customer_total_workbook,
+    export_customer_unshipped_workbook,
     export_daily_shipments_workbook,
     export_total_workbook,
     export_unshipped_workbook,
@@ -1548,13 +1549,17 @@ def create_app() -> FastAPI:
     def admin_export(request: Request, export_type: str = Form("company"), company: str = Form(""), ship_date: str = Form(""), template: str = Form("customer"), session: Session = Depends(get_session)):
         admin = require_admin(request, session)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        if company == "__all__":
+        if export_type == "unshipped":
+            selected_company = company if company and company != "__all__" else None
+            if template == "internal":
+                path = export_unshipped_workbook(session, EXPORT_DIR / f"未发货内部版_{stamp}.xlsx", selected_company)
+            else:
+                path = export_customer_unshipped_workbook(session, EXPORT_DIR / f"未发货客户版_{stamp}.xlsx", selected_company)
+        elif company == "__all__":
             if template == "internal":
                 path = export_total_workbook(session, EXPORT_DIR / f"ZY服装内部版发货总表_{stamp}.xlsx")
             else:
                 path = export_customer_total_workbook(session, EXPORT_DIR / f"ZY服装客户版发货总表_{stamp}.xlsx")
-        elif export_type == "unshipped":
-            path = export_unshipped_workbook(session, EXPORT_DIR / f"未发货表_{stamp}.xlsx")
         elif export_type == "company":
             if template == "internal":
                 path = export_company_workbook(session, company, EXPORT_DIR / f"{company}_内部版订单发货表_{stamp}.xlsx")

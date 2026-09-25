@@ -357,16 +357,31 @@ def export_customer_total_workbook(session: Session, output_path: Path) -> Path:
     return output_path
 
 
-def export_unshipped_workbook(session: Session, output_path: Path) -> Path:
+def export_unshipped_workbook(session: Session, output_path: Path, company_name: str | None = None) -> Path:
     wb = Workbook()
     wb.remove(wb.active)
-    balances = get_order_balances(session)
+    balances = get_order_balances(session, company_name=company_name)
     add_balance_sheet(
         wb,
         "未发货明细",
         [row for row in balances if row["remaining"] > 0],
         shipment_details_by_balance_row(session, balances),
         waybill_numbers_by_balance_row(session, balances),
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(output_path)
+    return output_path
+
+
+def export_customer_unshipped_workbook(session: Session, output_path: Path, company_name: str | None = None) -> Path:
+    wb = Workbook()
+    wb.remove(wb.active)
+    balances = get_order_balances(session, company_name=company_name)
+    add_customer_balance_sheet(
+        wb,
+        "未发货明细",
+        [row for row in balances if row["remaining"] > 0],
+        waybill_numbers=waybill_numbers_by_balance_row(session, balances),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
