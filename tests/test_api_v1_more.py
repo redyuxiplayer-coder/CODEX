@@ -466,6 +466,46 @@ def test_export_route_rejects_unsupported_template_and_type_without_creating_wor
         assert list(tmp_path.glob("*.xlsx")) == []
 
 
+def test_daily_export_route_keeps_existing_shipment_sheet_and_date_filter(db_session, tmp_path, monkeypatch):
+    import app.main as main_module
+
+    client, admin, _worker = _client(db_session)
+    line = create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100)
+    line.unit_price = Decimal("12.30")
+    for ship_date, quantity in (("2026-08-04", 3), ("2026-08-05", 4)):
+        report = ShipmentReport(
+            user_id=admin.id, ship_date=ship_date, company_name="源兴发",
+            product_name="裁判", style_name="圆领裁判", status="auto_approved",
+        )
+        db_session.add(report)
+        db_session.flush()
+        db_session.add(ShipmentLine(report_id=report.id, order_line_id=line.id, size="M", quantity=quantity))
+    db_session.commit()
+    monkeypatch.setattr(main_module, "EXPORT_DIR", tmp_path)
+
+    for template in ("customer", "internal"):
+        response = client.post(
+            "/admin/export",
+            data={"template": template, "export_type": "daily", "ship_date": "2026-08-04"},
+        )
+        assert response.status_code == 200
+        workbook = load_workbook(BytesIO(response.content))
+        assert workbook.sheetnames == ["发货流水"]
+        sheet = workbook.active
+        headers = [cell.value for cell in sheet[1]]
+        assert headers == [
+            "发货日期", "上报时间", "上报人", "公司", "产品", "款式", "尺码", "数量", "状态", "异常原因", "备注",
+            "订单", "下单时间", "客户订单号", "颜色", "SPU", "客户SKU",
+        ]
+        rows = list(sheet.iter_rows(min_row=2, values_only=True))
+        assert len(rows) == 1
+        assert rows[0][headers.index("发货日期")] == "2026-08-04"
+        assert rows[0][headers.index("数量")] == 3
+        assert not {"商品单价", "单价", "金额", "订单总金额"}.intersection(headers)
+        assert 12.3 not in rows[0]
+        assert 1230 not in rows[0]
+
+
 def test_work_info_get_and_save(db_session):
     client, _admin, _worker = _client(db_session)
 
