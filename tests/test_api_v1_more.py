@@ -403,6 +403,68 @@ def test_unshipped_export_route_keeps_customer_price_private_and_internal_price_
     assert not {"商品单价", "单价", "金额", "订单总金额"}.intersection(all_headers)
     assert {row[all_headers.index("尺码")] for row in all_customer_sheet.iter_rows(min_row=2, values_only=True)} == {"M", "S"}
 
+    all_internal_response = client.post(
+        "/admin/export",
+        data={"template": "internal", "company": "__all__", "export_type": "unshipped"},
+    )
+    assert all_internal_response.status_code == 200
+    all_internal_sheet = load_workbook(BytesIO(all_internal_response.content)).active
+    internal_headers = [cell.value for cell in all_internal_sheet[1]]
+    internal_rows = list(all_internal_sheet.iter_rows(min_row=2, values_only=True))
+    assert {row[internal_headers.index("尺码")] for row in internal_rows} == {"M", "S"}
+    assert next(row for row in internal_rows if row[internal_headers.index("尺码")] == "M")[internal_headers.index("金额")] == 1230
+
+    for template, company, export_type in (
+        ("customer", "源兴发", None),
+        ("internal", "源兴发", "company"),
+        ("customer", "__all__", ""),
+        ("internal", "__all__", None),
+    ):
+        form = {"template": template, "company": company}
+        if export_type is not None:
+            form["export_type"] = export_type
+        response = client.post("/admin/export", data=form)
+        assert response.status_code == 200
+        workbook = load_workbook(BytesIO(response.content))
+        balance_sheet = workbook["客户发货明细" if template == "customer" else "订单发货明细"]
+        headers = [cell.value for cell in balance_sheet[1]]
+        rows = list(balance_sheet.iter_rows(min_row=2, values_only=True))
+        expected_sizes = {"M", "L", "S"} if company == "__all__" else {"M", "L"}
+        assert {row[headers.index("尺码")] for row in rows} == expected_sizes
+        if template == "customer":
+            assert all(
+                not {"商品单价", "单价", "金额", "订单总金额"}.intersection(cell.value for cell in sheet[1])
+                for sheet in workbook.worksheets
+            )
+            assert all(
+                cell.value not in (12.3, 1230)
+                for sheet in workbook.worksheets
+                for row in sheet.iter_rows(min_row=2)
+                for cell in row
+            )
+        else:
+            priced_row = next(row for row in rows if row[headers.index("尺码")] == "M")
+            assert priced_row[headers.index("商品单价")] == 12.3
+            assert priced_row[headers.index("金额")] == 1230
+
+
+def test_export_route_rejects_unsupported_template_and_type_without_creating_workbook(db_session, tmp_path, monkeypatch):
+    import app.main as main_module
+
+    client, _admin, _worker = _client(db_session)
+    create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100)
+    monkeypatch.setattr(main_module, "EXPORT_DIR", tmp_path)
+
+    for form in (
+        {"template": "customer", "company": "源兴发", "export_type": "bogus"},
+        {"template": "bogus", "company": "源兴发", "export_type": "company"},
+        {"template": "bogus", "company": "__all__", "export_type": "unshipped"},
+    ):
+        response = client.post("/admin/export", data=form)
+        assert response.status_code == 400
+        assert "spreadsheetml" not in response.headers.get("content-type", "")
+        assert list(tmp_path.glob("*.xlsx")) == []
+
 
 def test_work_info_get_and_save(db_session):
     client, _admin, _worker = _client(db_session)

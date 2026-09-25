@@ -43,7 +43,6 @@ from app.services.exports import (
     export_customer_company_workbook,
     export_customer_total_workbook,
     export_customer_unshipped_workbook,
-    export_daily_shipments_workbook,
     export_total_workbook,
     export_unshipped_workbook,
 )
@@ -1548,6 +1547,10 @@ def create_app() -> FastAPI:
     @app.post("/admin/export")
     def admin_export(request: Request, export_type: str = Form("company"), company: str = Form(""), ship_date: str = Form(""), template: str = Form("customer"), session: Session = Depends(get_session)):
         admin = require_admin(request, session)
+        if template not in {"customer", "internal"}:
+            raise HTTPException(status_code=400, detail="导出版本无效")
+        if export_type not in {"", "company", "unshipped"}:
+            raise HTTPException(status_code=400, detail="导出类型无效")
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if export_type == "unshipped":
             selected_company = company if company and company != "__all__" else None
@@ -1560,15 +1563,11 @@ def create_app() -> FastAPI:
                 path = export_total_workbook(session, EXPORT_DIR / f"ZY服装内部版发货总表_{stamp}.xlsx")
             else:
                 path = export_customer_total_workbook(session, EXPORT_DIR / f"ZY服装客户版发货总表_{stamp}.xlsx")
-        elif export_type == "company":
+        else:
             if template == "internal":
                 path = export_company_workbook(session, company, EXPORT_DIR / f"{company}_内部版订单发货表_{stamp}.xlsx")
             else:
                 path = export_customer_company_workbook(session, company, EXPORT_DIR / f"{company}_客户版发货表_{stamp}.xlsx")
-        elif export_type == "daily":
-            path = export_daily_shipments_workbook(session, ship_date, EXPORT_DIR / f"{ship_date}_发货明细.xlsx")
-        else:
-            path = export_total_workbook(session, EXPORT_DIR / f"ZY服装发货总表_{stamp}.xlsx")
         target = "全部公司" if company == "__all__" else (company or ship_date or "导出")
         log_operation(session, admin.id, f"export_{template}", target, Path(path).name)
         return FileResponse(path, filename=Path(path).name)
