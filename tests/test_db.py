@@ -73,6 +73,25 @@ def test_new_order_lines_have_nullable_fixed_point_unit_price():
     assert unit_price["type"].precision == 12
     assert unit_price["type"].scale == 2
 
+    price_revision = next(
+        column for column in inspect(engine).get_columns("order_lines")
+        if column["name"] == "price_revision"
+    )
+    assert price_revision["nullable"] is False
+    assert str(price_revision["default"]).strip("'\"()") == "0"
+
+    with engine.begin() as connection:
+        connection.execute(
+            insert(models.OrderLine).values(
+                company_id=1,
+                product_name="Test product",
+                style_name="Test style",
+                size="S",
+                quantity=1,
+            )
+        )
+        assert connection.execute(text("SELECT price_revision FROM order_lines")).scalar_one() == 0
+
 
 def test_new_order_lines_reject_negative_unit_price():
     engine = create_engine("sqlite:///:memory:")
@@ -88,6 +107,18 @@ def test_new_order_lines_reject_negative_unit_price():
                     size="M",
                     quantity=1,
                     unit_price=Decimal("-0.01"),
+                )
+            )
+
+        with pytest.raises(IntegrityError, match="ck_order_lines_price_revision_nonnegative"):
+            connection.execute(
+                insert(models.OrderLine).values(
+                    company_id=1,
+                    product_name="Test product",
+                    style_name="Test style",
+                    size="M",
+                    quantity=1,
+                    price_revision=-1,
                 )
             )
 
@@ -143,7 +174,7 @@ def test_schema_updates_add_formal_order_columns_to_legacy_sqlite():
     assert "order_id" in {c["name"] for c in inspector.get_columns("shipment_reports")}
 
 
-def test_schema_updates_add_nullable_unit_price_without_backfilling_legacy_rows():
+def test_schema_updates_add_nullable_unit_price_and_zero_revision_to_legacy_rows():
     legacy_engine = create_engine("sqlite:///:memory:")
     with legacy_engine.begin() as connection:
         connection.exec_driver_sql(
@@ -163,6 +194,19 @@ def test_schema_updates_add_nullable_unit_price_without_backfilling_legacy_rows(
         assert connection.execute(
             text("SELECT unit_price FROM order_lines WHERE id = 1")
         ).scalar_one() is None
+        assert connection.execute(
+            text("SELECT price_revision FROM order_lines WHERE id = 1")
+        ).scalar_one() == 0
+    revision_columns = [
+        column for column in inspect(legacy_engine).get_columns("order_lines")
+        if column["name"] == "price_revision"
+    ]
+    assert len(revision_columns) == 1
+    assert revision_columns[0]["nullable"] is False
+    assert str(revision_columns[0]["default"]).strip("'\"()") == "0"
+    with legacy_engine.begin() as connection:
+        with pytest.raises(IntegrityError, match="ck_order_lines_price_revision_nonnegative"):
+            connection.execute(text("UPDATE order_lines SET price_revision = -1 WHERE id = 1"))
 
 
 def test_postgres_formal_order_migration_contains_required_schema_and_grants():
@@ -195,6 +239,9 @@ def test_postgres_order_line_price_migration_is_idempotent_and_nonnegative():
     assert "IF NOT EXISTS (" in migration
     assert "conrelid = 'order_lines'::regclass" in migration
     assert "CHECK (unit_price IS NULL OR unit_price >= 0)" in migration
+    assert "ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS price_revision INTEGER NOT NULL DEFAULT 0" in migration
+    assert "ck_order_lines_price_revision_nonnegative" in migration
+    assert "CHECK (price_revision >= 0)" in migration
 
 
 def test_waybill_table_and_link_column_registered():

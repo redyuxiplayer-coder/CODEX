@@ -103,6 +103,7 @@ class OrderLine(Base):
     __tablename__ = "order_lines"
     __table_args__ = (
         CheckConstraint("unit_price IS NULL OR unit_price >= 0", name="ck_order_lines_unit_price_nonnegative"),
+        CheckConstraint("price_revision >= 0", name="ck_order_lines_price_revision_nonnegative"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -113,6 +114,7 @@ class OrderLine(Base):
     size: Mapped[str] = mapped_column(String(80), index=True)
     quantity: Mapped[int] = mapped_column(Integer)
     unit_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    price_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     order_date: Mapped[str] = mapped_column(String(30), default="")
     delivery_date: Mapped[str] = mapped_column(String(80), default="")
     note: Mapped[str] = mapped_column(Text, default="")

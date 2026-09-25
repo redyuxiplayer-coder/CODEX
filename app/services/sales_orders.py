@@ -69,6 +69,7 @@ def update_order_line_unit_price(
     line_id: int,
     value: object,
     expected_value: object,
+    expected_revision: int,
 ) -> tuple[OrderLine, Decimal | None]:
     price = parse_unit_price(value)
     expected_price = parse_unit_price(expected_value)
@@ -87,9 +88,10 @@ def update_order_line_unit_price(
     if line.order_id != order.id:
         raise ValueError("订单行不存在或不属于该订单")
     before = parse_unit_price(line.unit_price)
-    if before != expected_price:
+    if before != expected_price or line.price_revision != expected_revision:
         raise StaleUnitPriceError("单价已变更，请刷新订单后重试")
     line.unit_price = price
+    line.price_revision += 1
     session.flush()
     return line, before
 
