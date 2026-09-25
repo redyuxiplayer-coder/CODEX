@@ -1,4 +1,5 @@
 from pathlib import Path
+from decimal import Decimal
 
 from openpyxl import Workbook, load_workbook
 
@@ -71,6 +72,31 @@ def test_same_style_duplicate_orders_stay_separate_and_shipments_allocate(db_ses
     assert [row["shipped"] for row in rows] == [1000, 500]
     assert [row["remaining"] for row in rows] == [0, 1500]
     assert [row["order_ref"] for row in rows] == ["第1单", "第2单"]
+
+
+def test_merged_legacy_balance_only_has_price_when_all_members_match(db_session):
+    first = create_order_line(db_session, "合并价格客户", "产品", "款式", "S", 2, batch="同一批")
+    second = create_order_line(db_session, "合并价格客户", "产品", "款式", "S", 3, batch="同一批")
+    first.unit_price = Decimal("12.30")
+    second.unit_price = Decimal("12.30")
+    db_session.commit()
+
+    row = get_order_balances(db_session, "合并价格客户")[0]
+    assert row["ordered"] == 5
+    assert row["unit_price"] == Decimal("12.30")
+    assert row["line_amount"] == Decimal("61.50")
+
+    second.unit_price = Decimal("13.00")
+    db_session.commit()
+    row = get_order_balances(db_session, "合并价格客户")[0]
+    assert row["unit_price"] is None
+    assert row["line_amount"] is None
+
+    second.unit_price = None
+    db_session.commit()
+    row = get_order_balances(db_session, "合并价格客户")[0]
+    assert row["unit_price"] is None
+    assert row["line_amount"] is None
 
 
 def test_assigned_shipment_line_counts_against_its_order_only(db_session):

@@ -235,3 +235,82 @@ def test_customer_and_internal_exports_keep_archived_order(db_session, tmp_path:
             if value is not None
         }
         assert formal_order.system_order_no in values
+
+
+def test_internal_balance_exports_write_numeric_prices_and_leave_unknown_prices_blank(db_session, tmp_path: Path):
+    from app.services.exports import export_total_workbook, export_unshipped_workbook
+
+    company = Company(name="价格导出客户", code="JG", next_order_sequence=1)
+    spu = Spu(code="JGSP", product_name="测试产品", style_name="测试款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    order = create_sales_order(
+        db_session, company.id, spu.id, "红色", "RED", "2026-05-22",
+        [
+            {"size": "M", "quantity": 100, "unit_price": "12.30"},
+            {"size": "L", "quantity": 10},
+        ],
+    )
+    admin = User(username="price_export_admin", display_name="老板", password_hash="x", role="admin", is_active=True)
+    db_session.add(admin)
+    db_session.flush()
+    report = ShipmentReport(
+        user_id=admin.id, order_id=order.id, ship_date="2026-05-23",
+        company_name=company.name, product_name=spu.product_name, style_name=spu.style_name,
+        status="auto_approved",
+    )
+    db_session.add(report)
+    db_session.flush()
+    priced_line = next(line for line in order.lines if line.size == "M")
+    db_session.add(ShipmentLine(report_id=report.id, order_line_id=priced_line.id, size="M", quantity=20))
+    db_session.commit()
+
+    for export, filename, sheet_names in (
+        (export_total_workbook, "内部总表.xlsx", ("订单发货明细", "未发货明细")),
+        (export_unshipped_workbook, "未发货内部版.xlsx", ("未发货明细",)),
+    ):
+        workbook = load_workbook(export(db_session, tmp_path / filename))
+        for sheet_name in sheet_names:
+            sheet = workbook[sheet_name]
+            headers = [cell.value for cell in sheet[1]]
+            price_index = headers.index("商品单价") + 1
+            amount_index = headers.index("金额") + 1
+            rows_by_size = {row[headers.index("尺码")].value: row for row in sheet.iter_rows(min_row=2)}
+            priced = rows_by_size["M"]
+            assert priced[headers.index("已发数量")].value == 20
+            assert priced[price_index - 1].value == 12.3
+            assert priced[amount_index - 1].value == 1230
+            assert priced[price_index - 1].data_type == "n"
+            assert priced[amount_index - 1].data_type == "n"
+            assert priced[price_index - 1].number_format == "¥#,##0.00"
+            assert priced[amount_index - 1].number_format == "¥#,##0.00"
+            unpriced = rows_by_size["L"]
+            assert unpriced[price_index - 1].value is None
+            assert unpriced[amount_index - 1].value is None
+
+
+def test_customer_workbooks_keep_price_fields_and_values_private(db_session, tmp_path: Path):
+    from app.services.exports import export_customer_total_workbook
+
+    company = Company(name="客户价格隔离", code="JGS", next_order_sequence=1)
+    spu = Spu(code="JGSP2", product_name="测试产品", style_name="测试款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+    create_sales_order(
+        db_session, company.id, spu.id, "红色", "RED", "2026-05-22",
+        [{"size": "M", "quantity": 100, "unit_price": "12.30"}],
+    )
+
+    for output in (
+        export_customer_total_workbook(db_session, tmp_path / "客户总表.xlsx"),
+        export_customer_company_workbook(db_session, company.name, tmp_path / "客户单公司.xlsx"),
+    ):
+        workbook = load_workbook(output)
+        for sheet in workbook.worksheets:
+            headers = [cell.value for cell in sheet[1]]
+            assert not {"商品单价", "单价", "金额", "订单总金额"}.intersection(headers)
+            assert all(
+                cell.value not in (12.3, 1230)
+                for row in sheet.iter_rows(min_row=2)
+                for cell in row
+            )

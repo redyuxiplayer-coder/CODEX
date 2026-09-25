@@ -16,6 +16,7 @@ from app.models import (
     User,
 )
 from app.services.aliases import canonical_item
+from app.services.sales_orders import money_from_cents, order_line_amount_cents
 from app.services.skus import sku_lookup
 
 APPROVED_STATUSES = {"auto_approved", "approved_after_edit"}
@@ -287,6 +288,7 @@ def get_order_balances(
             OrderLine.batch.label("batch"),
             OrderLine.sku.label("sku"),
             OrderLine.customer_sku.label("customer_sku"),
+            OrderLine.unit_price.label("unit_price"),
             OrderLine.note.label("note"),
             SalesOrder.id.label("sales_order_id"),
             SalesOrder.system_order_no.label("system_order_no"),
@@ -398,6 +400,8 @@ def get_order_balances(
                 "delivery_date": row.delivery_date or "",
                 "size": row.size,
                 "ordered": 0,
+                "unit_price": row.unit_price,
+                "line_amount": None,
                 "shipped": 0,
                 "remaining": 0,
                 "over_shipped": 0,
@@ -410,6 +414,8 @@ def get_order_balances(
             },
         )
         order_sort.setdefault(key, (row.order_date or row.batch or "", int(row.id or 0)))
+        if current["unit_price"] != row.unit_price:
+            current["unit_price"] = None
         current["ordered"] += ordered
         row_id = int(row.id or 0)
         if row_id and row_id not in current["order_ids"]:
@@ -428,6 +434,8 @@ def get_order_balances(
         sorted_rows = sorted(rows, key=lambda item: order_sort.get(item[0], ("", 0)))
         for index, (_key, row) in enumerate(sorted_rows):
             ordered = int(row["ordered"])
+            if row["unit_price"] is not None:
+                row["line_amount"] = money_from_cents(order_line_amount_cents(ordered, row["unit_price"]))
             direct_shipped = sum(shipped_by_order_id.get(order_id, 0) for order_id in row.get("order_ids", []))
             open_quantity = max(0, ordered - direct_shipped)
             allocated_shipped = min(open_quantity, remaining_shipped)

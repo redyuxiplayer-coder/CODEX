@@ -183,13 +183,16 @@ def add_balance_sheet(
     ws = wb.create_sheet(title)
     shipment_details = shipment_details or {}
     waybill_numbers = waybill_numbers or {}
-    ws.append(["公司", "产品", "款式", "订单", "下单时间", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量", "超发数量", "快递单号", "客户SKU"])
+    ws.append(["公司", "产品", "款式", "订单", "下单时间", "尺码", "SKU", "发货明细", "下单数量", "已发数量", "未发数量", "超发数量", "快递单号", "客户SKU", "商品单价", "金额"])
     for row in balances:
         key = _balance_detail_key(row)
         ws.append([
             row["company"], row["product"], row["style"], row.get("system_order_no", ""), row.get("formal_order_date", ""), row["size"], row.get("sku", ""), shipment_details.get(key, ""),
             row["ordered"], row["shipped"], row["remaining"], row["over_shipped"], waybill_numbers.get(key, ""), row.get("customer_sku", ""),
+            row.get("unit_price"), row.get("line_amount"),
         ])
+        ws.cell(ws.max_row, 15).number_format = "¥#,##0.00"
+        ws.cell(ws.max_row, 16).number_format = "¥#,##0.00"
     style_sheet(ws)
     return ws
 
