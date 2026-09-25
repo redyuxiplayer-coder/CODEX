@@ -19,6 +19,15 @@ export function priceSaveSnapshot(draft, line) {
   };
 }
 
+export function capturePriceEditBaseline(orderId, line) {
+  return Object.freeze({
+    orderId,
+    lineId: line.id,
+    unit_price: line.unit_price,
+    price_revision: line.price_revision,
+  });
+}
+
 export function createPriceSaveSession() {
   let generation = 0;
   return {
@@ -36,8 +45,8 @@ export function createPriceSaveSession() {
         if (!current()) return;
         if (error.status === 409 && onConflict) {
           try {
-            await reload();
-            if (current()) onConflict(error);
+            const refreshedOrder = await reload();
+            if (current()) onConflict(error, refreshedOrder);
           } catch (reloadError) {
             if (current()) (onConflictReloadError || onError)(reloadError);
           }

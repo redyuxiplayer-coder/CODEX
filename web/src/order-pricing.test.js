@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { updateSalesOrderLineUnitPrice } from "./api.js";
-import { createPriceSaveSession, formatMoney, priceSaveSnapshot, priceStatusText } from "./order-pricing.js";
+import { capturePriceEditBaseline, createPriceSaveSession, formatMoney, priceSaveSnapshot, priceStatusText } from "./order-pricing.js";
 
 function deferred() {
   let resolve;
@@ -226,7 +226,8 @@ test("price save snapshot preserves integer revision zero and null versus zero p
 test("ABA price conflict reloads the displayed revision before retry", async () => {
   const originalFetch = globalThis.fetch;
   let server = { unit_price: null, price_revision: 0 };
-  let displayed = { ...server };
+  let displayed = { id: 42, ...server };
+  let baseline = capturePriceEditBaseline(7, displayed);
   const draft = "20.00";
   const bodies = [];
   const effects = [];
@@ -241,17 +242,24 @@ test("ABA price conflict reloads the displayed revision before retry", async () 
     return new Response("{}", { status: 200 });
   };
   const updateFromDisplayed = () => {
-    const snapshot = priceSaveSnapshot(draft, displayed);
+    const snapshot = priceSaveSnapshot(draft, baseline);
     return updateSalesOrderLineUnitPrice(7, 42, snapshot.unitPrice, snapshot.expectedUnitPrice, snapshot.expectedPriceRevision);
   };
-  const reload = () => { displayed = { ...server }; effects.push("reload"); };
+  const reload = () => {
+    displayed = { id: 42, ...server };
+    effects.push("reload");
+    return { id: 7, lines: [displayed] };
+  };
   try {
     server = { unit_price: "10.00", price_revision: 1 };
     server = { unit_price: null, price_revision: 2 }; // Price returned to its original value.
     await session.run(session.capture(), {
       update: updateFromDisplayed,
       reload,
-      onConflict: () => effects.push("conflict"),
+      onConflict: (_error, refreshedOrder) => {
+        baseline = capturePriceEditBaseline(7, refreshedOrder.lines[0]);
+        effects.push("conflict");
+      },
       onSuccess: () => effects.push("success"),
       onError: () => effects.push("error"),
       onSettled: () => effects.push("settled"),
@@ -276,4 +284,81 @@ test("ABA price conflict reloads the displayed revision before retry", async () 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("background order reload does not change the edit baseline before a 409 rebase", async () => {
+  const originalFetch = globalThis.fetch;
+  const session = createPriceSaveSession();
+  const bodies = [];
+  const server = { id: 42, unit_price: "15.00", price_revision: 1 };
+  let displayed = { id: 42, unit_price: "10.00", price_revision: 0 };
+  let baseline = capturePriceEditBaseline(7, displayed);
+  assert.equal(Object.isFrozen(baseline), true);
+  const draft = "20.00";
+  globalThis.fetch = async (_path, options) => {
+    const body = JSON.parse(options.body);
+    bodies.push(body);
+    if (body.expected_unit_price !== server.unit_price || body.expected_price_revision !== server.price_revision) {
+      return new Response(JSON.stringify({ detail: "单价已变更" }), { status: 409 });
+    }
+    return new Response("{}", { status: 200 });
+  };
+  const updateFromEdit = () => {
+    const snapshot = priceSaveSnapshot(draft, baseline);
+    return updateSalesOrderLineUnitPrice(7, 42, snapshot.unitPrice, snapshot.expectedUnitPrice, snapshot.expectedPriceRevision);
+  };
+  try {
+    displayed = { ...server }; // Unrelated same-order reload while the editor remains open.
+    assert.deepEqual(priceSaveSnapshot(draft, baseline), {
+      unitPrice: "20.00", expectedUnitPrice: "10.00", expectedPriceRevision: 0,
+    });
+    await session.run(session.capture(), {
+      update: updateFromEdit,
+      reload: () => ({ id: 7, lines: [{ ...server }] }),
+      onConflict: (_error, refreshedOrder) => {
+        baseline = capturePriceEditBaseline(7, refreshedOrder.lines[0]);
+      },
+      onSuccess: () => assert.fail("stale baseline must conflict"),
+      onError: () => assert.fail("409 must use conflict flow"),
+      onSettled: () => {},
+    });
+    assert.deepEqual(bodies[0], {
+      unit_price: "20.00", expected_unit_price: "10.00", expected_price_revision: 0,
+    });
+    assert.equal(draft, "20.00");
+    assert.equal(displayed.unit_price, "15.00");
+    assert.deepEqual(priceSaveSnapshot(draft, baseline), {
+      unitPrice: "20.00", expectedUnitPrice: "15.00", expectedPriceRevision: 1,
+    });
+    await updateFromEdit();
+    assert.deepEqual(bodies[1], {
+      unit_price: "20.00", expected_unit_price: "15.00", expected_price_revision: 1,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("cancelled and replaced edits cannot be rebased by a stale conflict", async () => {
+  const session = createPriceSaveSession();
+  const update = deferred();
+  let baseline = capturePriceEditBaseline(7, { id: 42, unit_price: "10.00", price_revision: 0 });
+  const save = session.run(session.capture(), {
+    update: () => update.promise,
+    reload: () => ({ id: 7, lines: [{ id: 42, unit_price: "15.00", price_revision: 1 }] }),
+    onConflict: (_error, refreshedOrder) => {
+      baseline = capturePriceEditBaseline(7, refreshedOrder.lines[0]);
+    },
+    onSuccess: () => assert.fail("old save must not succeed"),
+    onError: () => assert.fail("old save must not message"),
+    onSettled: () => assert.fail("old save must not clear new loading state"),
+  });
+  session.invalidate(); // Cancel the old edit.
+  baseline = capturePriceEditBaseline(7, { id: 42, unit_price: "0.00", price_revision: 2 });
+  session.invalidate(); // Open a new edit of the same line.
+  update.reject(Object.assign(new Error("单价已变更"), { status: 409 }));
+  await save;
+  assert.deepEqual(priceSaveSnapshot(null, baseline), {
+    unitPrice: null, expectedUnitPrice: "0.00", expectedPriceRevision: 2,
+  });
 });
