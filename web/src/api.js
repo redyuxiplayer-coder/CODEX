@@ -107,10 +107,11 @@ export function updateSalesOrderCustomerNo(orderId, customerOrderNo) {
   });
 }
 
-export function updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice, expectedUnitPrice) {
+export function updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice, expectedUnitPrice, expectedPriceRevision) {
   return postJson(`/api/v1/sales-orders/${orderId}/lines/${lineId}/unit-price`, {
     unit_price: unitPrice,
     expected_unit_price: expectedUnitPrice,
+    expected_price_revision: expectedPriceRevision,
   });
 }
 

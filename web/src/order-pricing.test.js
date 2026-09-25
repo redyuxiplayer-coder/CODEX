@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { updateSalesOrderLineUnitPrice } from "./api.js";
-import { createPriceSaveSession, formatMoney, priceStatusText } from "./order-pricing.js";
+import { createPriceSaveSession, formatMoney, priceSaveSnapshot, priceStatusText } from "./order-pricing.js";
 
 function deferred() {
   let resolve;
@@ -121,11 +121,11 @@ test("price update payload keeps unknown and confirmed zero previous prices dist
     return new Response("{}", { status: 200 });
   };
   try {
-    await updateSalesOrderLineUnitPrice(7, 42, 0, null);
-    await updateSalesOrderLineUnitPrice(7, 42, null, "0.00");
+    await updateSalesOrderLineUnitPrice(7, 42, 0, null, 0);
+    await updateSalesOrderLineUnitPrice(7, 42, null, "0.00", 1);
     assert.deepEqual(bodies, [
-      { unit_price: 0, expected_unit_price: null },
-      { unit_price: null, expected_unit_price: "0.00" },
+      { unit_price: 0, expected_unit_price: null, expected_price_revision: 0 },
+      { unit_price: null, expected_unit_price: "0.00", expected_price_revision: 1 },
     ]);
   } finally {
     globalThis.fetch = originalFetch;
@@ -137,7 +137,7 @@ test("price update exposes a 409 response status to the editor", async () => {
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: "单价已变更" }), { status: 409 });
   try {
     await assert.rejects(
-      updateSalesOrderLineUnitPrice(7, 42, "9.99", null),
+      updateSalesOrderLineUnitPrice(7, 42, "9.99", null, 0),
       (error) => error.status === 409 && error.message === "单价已变更",
     );
   } finally {
@@ -208,4 +208,72 @@ test("navigation during conflict refresh suppresses the old message and loading 
   refresh.resolve();
   await save;
   assert.deepEqual(effects, []);
+});
+
+test("price save snapshot preserves integer revision zero and null versus zero price", () => {
+  assert.deepEqual(priceSaveSnapshot(0, { unit_price: null, price_revision: 0 }), {
+    unitPrice: 0,
+    expectedUnitPrice: null,
+    expectedPriceRevision: 0,
+  });
+  assert.deepEqual(priceSaveSnapshot(null, { unit_price: "0.00", price_revision: 1 }), {
+    unitPrice: null,
+    expectedUnitPrice: "0.00",
+    expectedPriceRevision: 1,
+  });
+});
+
+test("ABA price conflict reloads the displayed revision before retry", async () => {
+  const originalFetch = globalThis.fetch;
+  let server = { unit_price: null, price_revision: 0 };
+  let displayed = { ...server };
+  const draft = "20.00";
+  const bodies = [];
+  const effects = [];
+  const session = createPriceSaveSession();
+  globalThis.fetch = async (_path, options) => {
+    const body = JSON.parse(options.body);
+    bodies.push(body);
+    if (body.expected_unit_price !== server.unit_price || body.expected_price_revision !== server.price_revision) {
+      return new Response(JSON.stringify({ detail: "单价已变更" }), { status: 409 });
+    }
+    server = { unit_price: body.unit_price, price_revision: server.price_revision + 1 };
+    return new Response("{}", { status: 200 });
+  };
+  const updateFromDisplayed = () => {
+    const snapshot = priceSaveSnapshot(draft, displayed);
+    return updateSalesOrderLineUnitPrice(7, 42, snapshot.unitPrice, snapshot.expectedUnitPrice, snapshot.expectedPriceRevision);
+  };
+  const reload = () => { displayed = { ...server }; effects.push("reload"); };
+  try {
+    server = { unit_price: "10.00", price_revision: 1 };
+    server = { unit_price: null, price_revision: 2 }; // Price returned to its original value.
+    await session.run(session.capture(), {
+      update: updateFromDisplayed,
+      reload,
+      onConflict: () => effects.push("conflict"),
+      onSuccess: () => effects.push("success"),
+      onError: () => effects.push("error"),
+      onSettled: () => effects.push("settled"),
+    });
+    assert.deepEqual(effects, ["reload", "conflict", "settled"]);
+    assert.equal(displayed.price_revision, 2);
+    assert.equal(draft, "20.00");
+    assert.deepEqual(bodies[0], { unit_price: "20.00", expected_unit_price: null, expected_price_revision: 0 });
+
+    await session.run(session.capture(), {
+      update: updateFromDisplayed,
+      reload,
+      onConflict: () => effects.push("conflict"),
+      onSuccess: () => effects.push("success"),
+      onError: () => effects.push("error"),
+      onSettled: () => effects.push("settled"),
+    });
+    assert.deepEqual(bodies[1], { unit_price: "20.00", expected_unit_price: null, expected_price_revision: 2 });
+    assert.equal(server.price_revision, 3);
+    assert.equal(server.unit_price, "20.00");
+    assert.deepEqual(effects.slice(-3), ["reload", "success", "settled"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

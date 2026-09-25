@@ -11,6 +11,14 @@ export function priceStatusText(summary) {
   return `总金额待补全；已填写小计 ${formatMoney(summary.known_subtotal)}；${summary.missing_price_count} 个尺码未填写`;
 }
 
+export function priceSaveSnapshot(draft, line) {
+  return {
+    unitPrice: draft === "" || draft == null ? null : draft,
+    expectedUnitPrice: line.unit_price,
+    expectedPriceRevision: line.price_revision,
+  };
+}
+
 export function createPriceSaveSession() {
   let generation = 0;
   return {

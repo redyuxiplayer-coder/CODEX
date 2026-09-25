@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import OrderLine from "./OrderLine.vue";
-import { createPriceSaveSession, formatMoney, priceStatusText } from "../order-pricing.js";
+import { createPriceSaveSession, formatMoney, priceSaveSnapshot, priceStatusText } from "../order-pricing.js";
 import {
   archiveSalesOrder,
   fetchSalesOrder,
@@ -167,11 +167,10 @@ async function savePrice(line) {
   const lineId = line.id;
   if (!orderId || String(props.id) !== String(orderId) || editingPriceLineId.value !== lineId || savingPrice.value) return;
   const token = priceSaveSession.capture();
-  const unitPrice = priceDraft.value === "" || priceDraft.value == null ? null : priceDraft.value;
-  const expectedUnitPrice = line.unit_price;
+  const { unitPrice, expectedUnitPrice, expectedPriceRevision } = priceSaveSnapshot(priceDraft.value, line);
   savingPrice.value = true;
   await priceSaveSession.run(token, {
-    update: () => updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice, expectedUnitPrice),
+    update: () => updateSalesOrderLineUnitPrice(orderId, lineId, unitPrice, expectedUnitPrice, expectedPriceRevision),
     reload: load,
     isCurrent: () => String(props.id) === String(orderId) && editingPriceLineId.value === lineId,
     onSuccess: () => {
