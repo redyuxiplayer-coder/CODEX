@@ -155,22 +155,26 @@ async function uploadPhotos(row, event) {
           </template>
         </el-table-column>
         <el-table-column prop="review_reason" label="原因/处理" min-width="140" />
-        <el-table-column label="照片" width="160">
+        <el-table-column label="照片" width="210" fixed="right">
           <template #default="{ row }">
-            <div v-if="row.photos.length" style="display:flex;gap:3px;flex-wrap:wrap">
-              <el-image
-                v-for="p in row.photos"
-                :key="p.id"
-                :src="`/photos/shipment/${p.id}?thumb=1`"
-                :preview-src-list="[`/photos/shipment/${p.id}`]"
-                preview-teleported
-                fit="cover"
-                style="width:34px;height:34px;border-radius:4px"
-              />
-            </div>
-            <span v-else class="muted">0 张</span>
-            <div style="margin-top:4px">
-              <input type="file" accept=".jpg,.jpeg,.png,.webp" multiple style="font-size:12px;width:150px" @change="uploadPhotos(row, $event)" />
+            <div class="shipment-photo-cell">
+              <div v-if="row.photos.length" class="shipment-photo-strip">
+                <el-image
+                  v-for="p in row.photos"
+                  :key="p.id"
+                  :src="`/photos/shipment/${p.id}?thumb=1`"
+                  :preview-src-list="row.photos.map((photo) => `/photos/shipment/${photo.id}`)"
+                  :initial-index="row.photos.findIndex((photo) => photo.id === p.id)"
+                  preview-teleported
+                  fit="cover"
+                  class="shipment-photo-thumb"
+                />
+              </div>
+              <span v-else class="muted shipment-photo-empty">0 张</span>
+              <label class="shipment-photo-upload">
+                <span>＋上传</span>
+                <input type="file" accept=".jpg,.jpeg,.png,.webp" multiple @change="uploadPhotos(row, $event)" />
+              </label>
             </div>
           </template>
         </el-table-column>
@@ -187,3 +191,51 @@ async function uploadPhotos(row, event) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.shipment-photo-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 42px;
+}
+
+.shipment-photo-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.shipment-photo-thumb {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+}
+
+.shipment-photo-empty {
+  flex: 1;
+}
+
+.shipment-photo-upload {
+  position: relative;
+  flex: 0 0 auto;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.shipment-photo-upload input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+</style>
