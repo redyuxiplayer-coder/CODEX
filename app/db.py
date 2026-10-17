@@ -84,7 +84,7 @@ def ensure_schema_updates(target_engine=None) -> None:
             "sku": "VARCHAR(255) DEFAULT ''",
             "order_id": "INTEGER",
             "customer_sku": "VARCHAR(255) DEFAULT ''",
-            "unit_price": "NUMERIC(12, 2)",
+            "unit_price": "NUMERIC(13, 3)",
             "price_revision": (
                 "INTEGER NOT NULL DEFAULT 0 "
                 "CONSTRAINT ck_order_lines_price_revision_nonnegative CHECK (price_revision >= 0)"

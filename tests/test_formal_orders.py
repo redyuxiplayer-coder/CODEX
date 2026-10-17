@@ -129,10 +129,10 @@ def test_order_rejects_mixed_color_fields_and_duplicate_sizes(db_session):
         (None, None),
         ("", None),
         ("  ", None),
-        (0, Decimal("0.00")),
-        ("12.30", Decimal("12.30")),
-        (12.3, Decimal("12.30")),
-        ("9999999999.99", Decimal("9999999999.99")),
+        (0, Decimal("0.000")),
+        ("12.30", Decimal("12.300")),
+        (12.3, Decimal("12.300")),
+        ("9999999999.99", Decimal("9999999999.990")),
     ],
 )
 def test_parse_unit_price_accepts_blank_and_valid_money(value, expected):
@@ -141,11 +141,31 @@ def test_parse_unit_price_accepts_blank_and_valid_money(value, expected):
 
 @pytest.mark.parametrize(
     "value",
-    ["-0.01", "12.345", "1.000", "not money", "NaN", "Infinity", "10000000000", True],
+    ["-0.01", "12.3456", "1.0000", "not money", "NaN", "Infinity", "10000000000", True],
 )
 def test_parse_unit_price_rejects_invalid_money(value):
     with pytest.raises(ValueError, match="单价"):
         parse_unit_price(value)
+
+
+def test_three_decimal_unit_price_is_preserved_in_size_and_order_amounts(db_session):
+    company = Company(name="三位小数价格测试", code="MILLI", next_order_sequence=1)
+    spu = Spu(code="SKU", product_name="产品", style_name="款式")
+    db_session.add_all([company, spu])
+    db_session.commit()
+
+    order = create_sales_order(
+        db_session,
+        company.id,
+        spu.id,
+        "",
+        "",
+        "2026-10-17",
+        [{"size": "S", "quantity": 3, "unit_price": "12.345"}],
+    )
+
+    assert order.lines[0].unit_price == Decimal("12.345")
+    assert order_price_summary(order)["total_amount"] == Decimal("37.035")
 
 
 def test_create_formal_order_preserves_filled_zero_and_missing_prices(db_session):
@@ -168,9 +188,9 @@ def test_create_formal_order_preserves_filled_zero_and_missing_prices(db_session
         ],
     )
 
-    assert [line.unit_price for line in order.lines] == [Decimal("12.30"), Decimal("0.00"), None]
+    assert [line.unit_price for line in order.lines] == [Decimal("12.300"), Decimal("0.000"), None]
     assert order_price_summary(order) == {
-        "known_subtotal": Decimal("1230.00"),
+        "known_subtotal": Decimal("1230.000"),
         "missing_price_count": 1,
         "is_complete": False,
         "total_amount": None,
@@ -191,7 +211,7 @@ def test_create_formal_order_rejects_invalid_price_before_writing(db_session):
             "",
             "",
             "2026-09-24",
-            [{"size": "S", "quantity": 1, "unit_price": "12.345"}],
+            [{"size": "S", "quantity": 1, "unit_price": "12.3456"}],
         )
 
     assert db_session.query(SalesOrder).count() == 0

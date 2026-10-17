@@ -69,8 +69,8 @@ def test_api_orders_balances_serializes_large_money_without_losing_cents(db_sess
 
     assert response.status_code == 200
     row = response.json()["balances"][0]
-    assert row["unit_price"] == "9999999999.99"
-    assert row["line_amount"] == "100009999999899.99"
+    assert row["unit_price"] == "9999999999.990"
+    assert row["line_amount"] == "100009999999899.990"
 
 
 def test_api_order_line_detail_includes_totals_ledger_and_returns(db_session):

@@ -104,7 +104,7 @@ async function submit() {
               <el-input v-model="line.size" placeholder="尺码" />
               <el-input-number v-model="line.quantity" :min="0" style="width:150px" />
               <el-input v-model="line.customer_sku" placeholder="客户 SKU（客户提供才填）" />
-              <el-input-number v-model="line.unit_price" :min="0" :precision="2" :step="0.01" placeholder="商品单价（可留空）" style="width:160px" />
+              <el-input-number v-model="line.unit_price" :min="0" :precision="3" :step="0.001" placeholder="商品单价（可留空）" style="width:160px" />
               <el-button type="danger" link @click="removeLine(index)">删除</el-button>
             </div>
             <el-button @click="addLine">增加尺码</el-button>

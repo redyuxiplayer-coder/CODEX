@@ -8,8 +8,8 @@ from app.services.quantities import parse_quantity
 from app.services.spus import normalize_code
 
 
-PRICE_QUANTUM = Decimal("0.01")
-MAX_UNIT_PRICE = Decimal("9999999999.99")
+PRICE_QUANTUM = Decimal("0.001")
+MAX_UNIT_PRICE = Decimal("9999999999.999")
 
 
 class OrderPriceTargetNotFoundError(ValueError):
@@ -31,30 +31,30 @@ def parse_unit_price(value: object) -> Decimal | None:
         not price.is_finite()
         or price < 0
         or price > MAX_UNIT_PRICE
-        or price.as_tuple().exponent < -2
+        or price.as_tuple().exponent < -3
     ):
-        raise ValueError("单价必须为 0 到 9999999999.99 之间且最多两位小数")
+        raise ValueError("单价必须为 0 到 9999999999.999 之间且最多三位小数")
     return price.quantize(PRICE_QUANTUM)
 
 
-def order_line_amount_cents(quantity: int, unit_price: Decimal) -> int:
-    return int(unit_price * 100) * quantity
+def order_line_amount_mills(quantity: int, unit_price: Decimal) -> int:
+    return int(unit_price * 1000) * quantity
 
 
-def money_from_cents(cents: int) -> Decimal:
-    sign = "-" if cents < 0 else ""
-    whole, fraction = divmod(abs(cents), 100)
-    return Decimal(f"{sign}{whole}.{fraction:02d}")
+def money_from_mills(mills: int) -> Decimal:
+    sign = "-" if mills < 0 else ""
+    whole, fraction = divmod(abs(mills), 1000)
+    return Decimal(f"{sign}{whole}.{fraction:03d}")
 
 
 def order_price_summary(order: SalesOrder) -> dict:
     active = [line for line in order.lines if line.is_active]
-    known_cents = sum(
-        order_line_amount_cents(line.quantity, line.unit_price)
+    known_mills = sum(
+        order_line_amount_mills(line.quantity, line.unit_price)
         for line in active
         if line.unit_price is not None
     )
-    known = money_from_cents(known_cents)
+    known = money_from_mills(known_mills)
     missing = sum(1 for line in active if line.unit_price is None)
     return {
         "known_subtotal": known,

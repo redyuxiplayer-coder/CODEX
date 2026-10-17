@@ -63,8 +63,8 @@ from app.services.sales_orders import (
     OrderPriceTargetNotFoundError,
     StaleUnitPriceError,
     create_sales_order,
-    money_from_cents,
-    order_line_amount_cents,
+    money_from_mills,
+    order_line_amount_mills,
     order_price_summary,
     update_order_line_unit_price,
     update_sales_order_customer_no,
@@ -205,7 +205,7 @@ def _sales_order_dict(
                 "unit_price": _money_string(line.unit_price),
                 "price_revision": line.price_revision,
                 "line_amount": (
-                    _money_string(money_from_cents(order_line_amount_cents(line.quantity, line.unit_price)))
+                    _money_string(money_from_mills(order_line_amount_mills(line.quantity, line.unit_price)))
                     if line.unit_price is not None else None
                 ),
                 **({"totals": totals_by_line[line.id]} if totals_by_line is not None else {}),
@@ -223,7 +223,7 @@ def _sales_order_dict(
 
 
 def _money_string(value: Decimal | None) -> str | None:
-    return format(value, ".2f") if value is not None else None
+    return format(value, ".3f") if value is not None else None
 
 
 def _status_rank(row: dict) -> int:

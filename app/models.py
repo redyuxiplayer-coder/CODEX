@@ -113,7 +113,7 @@ class OrderLine(Base):
     style_name: Mapped[str] = mapped_column(String(160), index=True)
     size: Mapped[str] = mapped_column(String(80), index=True)
     quantity: Mapped[int] = mapped_column(Integer)
-    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    unit_price: Mapped[Decimal | None] = mapped_column(Numeric(13, 3), nullable=True)
     price_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     order_date: Mapped[str] = mapped_column(String(30), default="")
     delivery_date: Mapped[str] = mapped_column(String(80), default="")

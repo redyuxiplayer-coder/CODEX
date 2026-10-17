@@ -70,8 +70,8 @@ def test_new_order_lines_have_nullable_fixed_point_unit_price():
     )
     assert unit_price["nullable"] is True
     assert isinstance(unit_price["type"], Numeric)
-    assert unit_price["type"].precision == 12
-    assert unit_price["type"].scale == 2
+    assert unit_price["type"].precision == 13
+    assert unit_price["type"].scale == 3
 
     price_revision = next(
         column for column in inspect(engine).get_columns("order_lines")
@@ -234,7 +234,7 @@ def test_postgres_order_archive_migration_is_idempotent_and_grants_app_access():
 def test_postgres_order_line_price_migration_is_idempotent_and_nonnegative():
     migration = Path("scripts/migration_2026_09_24_order_line_price.sql").read_text(encoding="utf-8")
 
-    assert "ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12, 2)" in migration
+    assert "ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(13, 3)" in migration
     assert "ck_order_lines_unit_price_nonnegative" in migration
     assert "IF NOT EXISTS (" in migration
     assert "conrelid = 'order_lines'::regclass" in migration
@@ -242,6 +242,13 @@ def test_postgres_order_line_price_migration_is_idempotent_and_nonnegative():
     assert "ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS price_revision INTEGER NOT NULL DEFAULT 0" in migration
     assert "ck_order_lines_price_revision_nonnegative" in migration
     assert "CHECK (price_revision >= 0)" in migration
+
+
+def test_existing_postgres_order_prices_can_be_migrated_to_three_decimals():
+    migration = Path("scripts/migration_2026_10_17_order_line_price_three_decimals.sql").read_text(encoding="utf-8-sig")
+
+    assert "ALTER COLUMN unit_price TYPE NUMERIC(13, 3)" in migration
+    assert "USING unit_price::NUMERIC(13, 3)" in migration
 
 
 def test_waybill_table_and_link_column_registered():

@@ -282,8 +282,8 @@ def test_internal_balance_exports_write_numeric_prices_and_leave_unknown_prices_
             assert priced[amount_index - 1].value == 1230
             assert priced[price_index - 1].data_type == "n"
             assert priced[amount_index - 1].data_type == "n"
-            assert priced[price_index - 1].number_format == "¥#,##0.00"
-            assert priced[amount_index - 1].number_format == "¥#,##0.00"
+            assert priced[price_index - 1].number_format == "¥#,##0.000"
+            assert priced[amount_index - 1].number_format == "¥#,##0.000"
             unpriced = rows_by_size["L"]
             assert unpriced[price_index - 1].value is None
             assert unpriced[amount_index - 1].value is None

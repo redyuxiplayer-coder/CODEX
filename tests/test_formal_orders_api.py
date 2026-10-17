@@ -220,11 +220,11 @@ def test_create_sales_order_api_returns_generated_number(db_session):
     assert payload["customer_order_no"] == "客户单-88"
     assert payload["spu"]["code"] == "JS"
     assert payload["lines"] == [
-        {"id": payload["lines"][0]["id"], "size": "S", "quantity": 100, "customer_sku": "FZB1209001-01-red-S", "unit_price": "12.30", "price_revision": 0, "line_amount": "1230.00"},
+        {"id": payload["lines"][0]["id"], "size": "S", "quantity": 100, "customer_sku": "FZB1209001-01-red-S", "unit_price": "12.300", "price_revision": 0, "line_amount": "1230.000"},
         {"id": payload["lines"][1]["id"], "size": "M", "quantity": 80, "customer_sku": "", "unit_price": None, "price_revision": 0, "line_amount": None},
     ]
     assert payload["price_summary"] == {
-        "known_subtotal": "1230.00",
+        "known_subtotal": "1230.000",
         "missing_price_count": 1,
         "is_complete": False,
         "total_amount": None,
@@ -249,11 +249,11 @@ def test_price_update_completes_order_and_records_audit(db_session):
 
     initial = client.get(f"/api/v1/sales-orders/{order.id}")
     assert initial.status_code == 200
-    assert initial.json()["lines"][0]["unit_price"] == "12.30"
-    assert initial.json()["lines"][0]["line_amount"] == "1230.00"
+    assert initial.json()["lines"][0]["unit_price"] == "12.300"
+    assert initial.json()["lines"][0]["line_amount"] == "1230.000"
     assert initial.json()["lines"][1]["price_revision"] == 0
     assert initial.json()["price_summary"] == {
-        "known_subtotal": "1230.00",
+        "known_subtotal": "1230.000",
         "missing_price_count": 1,
         "is_complete": False,
         "total_amount": None,
@@ -261,21 +261,21 @@ def test_price_update_completes_order_and_records_audit(db_session):
 
     response = client.post(
         f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
-        json={"unit_price": 0, "expected_unit_price": None, "expected_price_revision": 0},
+        json={"unit_price": "0.125", "expected_unit_price": None, "expected_price_revision": 0},
     )
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["lines"][1]["unit_price"] == "0.00"
+    assert payload["lines"][1]["unit_price"] == "0.125"
     assert payload["lines"][1]["price_revision"] == 1
-    assert payload["lines"][1]["line_amount"] == "0.00"
+    assert payload["lines"][1]["line_amount"] == "0.250"
     assert payload["price_summary"] == {
-        "known_subtotal": "1230.00",
+        "known_subtotal": "1230.250",
         "missing_price_count": 0,
         "is_complete": True,
-        "total_amount": "1230.00",
+        "total_amount": "1230.250",
     }
-    assert db_session.get(OrderLine, line.id).unit_price == Decimal("0.00")
+    assert db_session.get(OrderLine, line.id).unit_price == Decimal("0.125")
     log = db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").one()
     assert log.target == order.system_order_no
     assert log.actor_id == db_session.query(User).filter_by(username="formal_order_admin").one().id
@@ -285,21 +285,21 @@ def test_price_update_completes_order_and_records_audit(db_session):
         "line_id": line.id,
         "size": "M",
         "before": None,
-        "after": "0.00",
+        "after": "0.125",
         "before_revision": 0,
         "after_revision": 1,
     }
 
     cleared = client.post(
         f"/api/v1/sales-orders/{order.id}/lines/{line.id}/unit-price",
-        json={"unit_price": None, "expected_unit_price": "0.00", "expected_price_revision": 1},
+        json={"unit_price": None, "expected_unit_price": "0.125", "expected_price_revision": 1},
     )
     assert cleared.status_code == 200
     assert cleared.json()["price_summary"]["total_amount"] is None
     assert cleared.json()["lines"][1]["price_revision"] == 2
     assert db_session.get(OrderLine, line.id).unit_price is None
     clear_log = json.loads(db_session.query(OperationLog).order_by(OperationLog.id.desc()).first().detail)
-    assert clear_log["before"] == "0.00"
+    assert clear_log["before"] == "0.125"
     assert clear_log["after"] is None
     assert clear_log["before_revision"] == 1
     assert clear_log["after_revision"] == 2
@@ -333,7 +333,7 @@ def test_price_update_rejects_stale_expected_price_without_overwriting_or_auditi
 
     assert second.status_code == 200
     assert stale_zero.status_code == 409
-    assert db_session.get(OrderLine, line.id).unit_price == Decimal("12.30")
+    assert db_session.get(OrderLine, line.id).unit_price == Decimal("12.300")
     assert db_session.get(OrderLine, line.id).price_revision == 2
     assert db_session.query(OperationLog).filter_by(action="order_line_unit_price_update").count() == 2
 
@@ -410,10 +410,10 @@ def test_price_summary_ignores_inactive_lines(db_session):
 
     assert response.status_code == 200
     assert response.json()["price_summary"] == {
-        "known_subtotal": "24.60",
+        "known_subtotal": "24.600",
         "missing_price_count": 0,
         "is_complete": True,
-        "total_amount": "24.60",
+        "total_amount": "24.600",
     }
 
 
@@ -434,12 +434,12 @@ def test_price_detail_keeps_cents_with_large_quantity(db_session):
     response = client.get(f"/api/v1/sales-orders/{order.id}")
 
     assert response.status_code == 200
-    assert response.json()["lines"][0]["line_amount"] == "999999999998999990000000000.01"
+    assert response.json()["lines"][0]["line_amount"] == "999999999998999990000000000.010"
     assert response.json()["price_summary"] == {
-        "known_subtotal": "999999999998999990000000000.03",
+        "known_subtotal": "999999999998999990000000000.030",
         "missing_price_count": 0,
         "is_complete": True,
-        "total_amount": "999999999998999990000000000.03",
+        "total_amount": "999999999998999990000000000.030",
     }
 
 
@@ -459,7 +459,7 @@ def test_price_update_rejects_wrong_order_and_invalid_value(db_session):
     )
     invalid_price = client.post(
         f"/api/v1/sales-orders/{first.id}/lines/{line.id}/unit-price",
-        json={"unit_price": "9.999", "expected_unit_price": None, "expected_price_revision": 0},
+        json={"unit_price": "9.9999", "expected_unit_price": None, "expected_price_revision": 0},
     )
     missing_order = client.post(
         f"/api/v1/sales-orders/{second.id + 1000}/lines/{line.id}/unit-price",

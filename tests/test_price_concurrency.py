@@ -81,9 +81,9 @@ def test_stale_sqlite_reader_cannot_overwrite_committed_price(tmp_path):
             audits = verify.query(OperationLog).filter_by(action="order_line_unit_price_update").all()
             assert seen_by_a == [(None, 0)]
             assert result_a == "stale"
-            assert line.unit_price == Decimal("15.00")
+            assert line.unit_price == Decimal("15.000")
             assert line.price_revision == 1
-            assert [json.loads(audit.detail) for audit in audits] == [{"after": "15.00"}]
+            assert [json.loads(audit.detail) for audit in audits] == [{"after": "15.000"}]
     finally:
         b_committed.set()
         engine.dispose()

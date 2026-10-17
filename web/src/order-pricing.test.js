@@ -19,24 +19,25 @@ test("an unknown price displays as unfilled rather than zero", () => {
   assert.equal(formatMoney(""), "未填写");
 });
 
-test("a confirmed zero price displays two decimal places", () => {
-  assert.equal(formatMoney(0), "¥0.00");
-  assert.equal(formatMoney("0.00"), "¥0.00");
+test("money displays three decimal places", () => {
+  assert.equal(formatMoney(0), "¥0.000");
+  assert.equal(formatMoney("12.3"), "¥12.300");
+  assert.equal(formatMoney("12.345"), "¥12.345");
 });
 
 test("a complete order displays its total", () => {
-  assert.equal(priceStatusText({ is_complete: true, total_amount: "1230.00" }), "订单总金额 ¥1230.00");
+  assert.equal(priceStatusText({ is_complete: true, total_amount: "1230.000" }), "订单总金额 ¥1230.000");
 });
 
 test("an incomplete order shows its known subtotal and missing size count", () => {
   assert.equal(
-    priceStatusText({ is_complete: false, known_subtotal: "1230.00", missing_price_count: 2 }),
-    "总金额待补全；已填写小计 ¥1230.00；2 个尺码未填写",
+    priceStatusText({ is_complete: false, known_subtotal: "1230.000", missing_price_count: 2 }),
+    "总金额待补全；已填写小计 ¥1230.000；2 个尺码未填写",
   );
 });
 
 test("large exact decimal amounts retain their cents", () => {
-  assert.equal(formatMoney("999999999998999990000000000.03"), "¥999999999998999990000000000.03");
+  assert.equal(formatMoney("999999999998999990000000000.030"), "¥999999999998999990000000000.030");
 });
 
 test("an A-to-B-to-A stale save cannot reload, close a new edit, or clear its loading state", async () => {

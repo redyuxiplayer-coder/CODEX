@@ -191,8 +191,8 @@ def add_balance_sheet(
             row["ordered"], row["shipped"], row["remaining"], row["over_shipped"], waybill_numbers.get(key, ""), row.get("customer_sku", ""),
             row.get("unit_price"), row.get("line_amount"),
         ])
-        ws.cell(ws.max_row, 15).number_format = "¥#,##0.00"
-        ws.cell(ws.max_row, 16).number_format = "¥#,##0.00"
+        ws.cell(ws.max_row, 15).number_format = "¥#,##0.000"
+        ws.cell(ws.max_row, 16).number_format = "¥#,##0.000"
     style_sheet(ws)
     return ws
 

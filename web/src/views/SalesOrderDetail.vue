@@ -295,7 +295,7 @@ watch(() => route.query.line, (lineId) => {
         <el-table-column label="商品单价" min-width="370">
           <template #default="{ row }">
             <template v-if="editingPriceLineId === row.id">
-              <el-input-number v-model="priceDraft" :min="0" :precision="2" :step="0.01" placeholder="未填写" size="small" style="width:145px" />
+              <el-input-number v-model="priceDraft" :min="0" :precision="3" :step="0.001" placeholder="未填写" size="small" style="width:145px" />
               <span v-if="priceConflictLineId === row.id">当前单价：{{ formatMoney(row.unit_price) }}</span>
               <el-button type="primary" link size="small" :loading="savingPrice" @click="savePrice(row)">保存</el-button>
               <el-button link size="small" :disabled="savingPrice" @click="cancelEditPrice">取消</el-button>

@@ -1,8 +1,8 @@
 export function formatMoney(value) {
   if (value === null || value === undefined || value === "") return "未填写";
-  const exact = String(value).match(/^(\d+)(?:\.(\d{1,2}))?$/);
-  if (exact) return `¥${exact[1]}.${(exact[2] || "").padEnd(2, "0")}`;
-  return `¥${Number(value).toFixed(2)}`;
+  const exact = String(value).match(/^(\d+)(?:\.(\d{1,3}))?$/);
+  if (exact) return `¥${exact[1]}.${(exact[2] || "").padEnd(3, "0")}`;
+  return `¥${Number(value).toFixed(3)}`;
 }
 
 export function priceStatusText(summary) {

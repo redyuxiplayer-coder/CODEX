@@ -1,6 +1,6 @@
 BEGIN;
 
-ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12, 2);
+ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS unit_price NUMERIC(13, 3);
 ALTER TABLE order_lines ADD COLUMN IF NOT EXISTS price_revision INTEGER NOT NULL DEFAULT 0;
 UPDATE order_lines SET price_revision = 0 WHERE price_revision IS NULL;
 ALTER TABLE order_lines ALTER COLUMN price_revision SET DEFAULT 0;
