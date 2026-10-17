@@ -150,6 +150,38 @@ def test_shipments_list_filter_and_waybill_update(db_session):
     assert report.waybill_no == "YT999"
 
 
+def test_shipments_list_hides_rejected_reports_and_counts_visible_rows(db_session):
+    client, _admin, worker = _client(db_session)
+    create_order_line(db_session, "源兴发", "裁判", "圆领裁判", "M", 100)
+    reports = []
+    for index in range(11):
+        report = submit_shipment_report(
+            db_session,
+            worker.id,
+            "2026-08-04",
+            "源兴发",
+            "裁判",
+            "圆领裁判",
+            [{"size": "M", "quantity": 1}],
+            [],
+            "",
+        )
+        if index == 0:
+            report.status = "rejected"
+        reports.append(report)
+    db_session.commit()
+
+    response = client.get("/api/v1/shipments?page=2")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 10
+    assert payload["total_pages"] == 1
+    assert payload["page"] == 1
+    assert len(payload["reports"]) == 10
+    assert all(report["status"] != "rejected" for report in payload["reports"])
+
+
 def test_shipments_list_includes_bound_order_reference_per_line(db_session):
     client, _admin, worker = _client(db_session)
     dated_order = create_order_line(

@@ -1169,10 +1169,10 @@ def api_shipments(
     session: Session = Depends(get_session),
 ):
     require_admin(request, session)
-    query = session.query(ShipmentReport).order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
+    query = session.query(ShipmentReport).filter(ShipmentReport.status != "rejected").order_by(ShipmentReport.created_at.desc(), ShipmentReport.id.desc())
     companies = [
         row[0]
-        for row in session.query(ShipmentReport.company_name).distinct().order_by(ShipmentReport.company_name).all()
+        for row in session.query(ShipmentReport.company_name).filter(ShipmentReport.status != "rejected").distinct().order_by(ShipmentReport.company_name).all()
         if row[0]
     ]
     clean_order_no = order_no.strip()
