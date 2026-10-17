@@ -76,7 +76,12 @@ async function uploadPhotos(row, event) {
 
 <template>
   <div>
-    <h1 class="page-title">发货明细</h1>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1 class="page-title">发货明细</h1>
+      <el-button tag="a" href="/mobile/report" target="_blank" rel="noopener" type="primary">
+        新增发货
+      </el-button>
+    </div>
     <div class="section-card">
       <div class="filter-bar">
         <el-select v-model="company" placeholder="全部公司" clearable style="width:180px" @change="page = 1; load()">
