@@ -8,18 +8,24 @@
     <span>{{ l.size }} <b>{{ l.quantity }}</b>{% if l.order_line and l.order_line.customer_sku %}<small> {{ l.order_line.customer_sku }}</small>{% endif %}</span>
     {% endfor %}
   </div>
-  {% if r.photos %}
-  <div class="report-photos">
-    {% for p in r.photos %}
-    <a href="/photos/shipment/{{ p.id }}" data-lightbox="report-{{ r.id }}">
-      <img src="/photos/shipment/{{ p.id }}?thumb=1" alt="单包照片{{ loop.index }}">
-    </a>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="item-sub">照片：0 张</div>
-  {% endif %}
   <form method="post" action="/mobile/my-reports/{{ r.id }}/update" enctype="multipart/form-data" class="grid-form">
+    {% if r.photos %}
+    <div class="report-photos">
+      {% for p in r.photos %}
+      <div class="report-photo-item">
+        <a href="/photos/shipment/{{ p.id }}" data-lightbox="report-{{ r.id }}">
+          <img src="/photos/shipment/{{ p.id }}?thumb=1" alt="单包照片{{ loop.index }}">
+        </a>
+        <label class="photo-delete-choice">
+          <input type="checkbox" name="delete_photo_ids" value="{{ p.id }}">
+          <span>删除照片</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="item-sub">照片：0 张</div>
+    {% endif %}
     {% for l in r.lines %}
     <div class="size-row">
       <input type="hidden" name="line_ids" value="{{ l.id }}">

@@ -104,6 +104,40 @@ def thumbnail_path_for(source_path: str) -> Path:
     return THUMBNAIL_DIR / f"{source.stem}_thumb.jpg"
 
 
+def delete_local_photo_if_unreferenced(session, source_path: str) -> bool:
+    """Remove an uploaded image and its cached thumbnail when no database row uses it."""
+    if not source_path or source_path.startswith("storage://"):
+        return False
+
+    from app.models import PackingDraftPhoto, ShipmentPhoto
+
+    source = Path(source_path)
+    upload_root = UPLOAD_DIR.resolve()
+    try:
+        resolved_source = source.resolve()
+        resolved_source.relative_to(upload_root)
+    except (OSError, ValueError):
+        return False
+
+    if session.query(ShipmentPhoto.id).filter_by(file_path=source_path).first() is not None:
+        return False
+    if session.query(PackingDraftPhoto.id).filter_by(file_path=source_path).first() is not None:
+        return False
+
+    try:
+        resolved_source.unlink(missing_ok=True)
+    except OSError:
+        return False
+
+    thumbnail = thumbnail_path_for(str(resolved_source))
+    try:
+        thumbnail.resolve().relative_to(THUMBNAIL_DIR.resolve())
+        thumbnail.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
+    return True
+
+
 def ensure_thumbnail(source_path: str) -> Path:
     """Return a cached 120px JPEG thumbnail for a local photo file."""
     from PIL import Image, ImageOps

@@ -65,7 +65,7 @@ from app.services.orders import (
 from app.services.operation_logs import log_operation, recent_operation_logs
 from app.services.order_archives import archived_order_ids, get_open_archive, worker_visible_balances
 from app.services.packing_drafts import create_packing_draft, delete_packing_draft, submit_packing_draft, update_packing_draft
-from app.services.photos import ensure_thumbnail, save_uploads
+from app.services.photos import delete_local_photo_if_unreferenced, ensure_thumbnail, save_uploads
 from app.services.photos import download_file_from_supabase_storage
 from app.services.quantities import parse_quantity
 from app.services.ledger import order_line_totals, recompute_for_report
@@ -1979,6 +1979,7 @@ def create_app() -> FastAPI:
         quantities: list[str] = Form([]),
         note: str = Form(""),
         photos: list[UploadFile] = File([]),
+        delete_photo_ids: list[int] = Form([]),
         session: Session = Depends(get_session),
     ):
         user = current_user(request, session)
@@ -2000,8 +2001,22 @@ def create_app() -> FastAPI:
                 continue
             line_id = line_ids[index] if index < len(line_ids) else ""
             updates.append({"line_id": line_id, "size": clean_size, "quantity": quantity})
-        if not updates:
+        if not updates and not delete_photo_ids:
             return RedirectResponse("/mobile/my-reports", status_code=303)
+
+        photos_to_delete = []
+        if delete_photo_ids:
+            requested_photo_ids = set(delete_photo_ids)
+            photos_to_delete = (
+                session.query(ShipmentPhoto)
+                .filter(
+                    ShipmentPhoto.report_id == report.id,
+                    ShipmentPhoto.id.in_(requested_photo_ids),
+                )
+                .all()
+            )
+            if {photo.id for photo in photos_to_delete} != requested_photo_ids:
+                raise HTTPException(status_code=404, detail="照片不存在")
 
         try:
             upload_date = date.fromisoformat(report.ship_date)
@@ -2049,6 +2064,12 @@ def create_app() -> FastAPI:
                 line.quantity = update["quantity"]
         for path in paths:
             session.add(ShipmentPhoto(report_id=report.id, file_path=path, original_name=Path(path).name))
+        deleted_photo_paths = [photo.file_path for photo in photos_to_delete]
+        deleted_photo_details = ", ".join(
+            f"{photo.id}:{photo.original_name or '未命名'}" for photo in photos_to_delete
+        ) or "无"
+        for photo in photos_to_delete:
+            session.delete(photo)
         report.note = note.strip()
         report.status = "pending_review"
         report.review_reason = "员工提交更新，等待老板审核"
@@ -2060,12 +2081,20 @@ def create_app() -> FastAPI:
                 action="worker_update",
                 before_text=json.dumps(before_lines, ensure_ascii=False),
                 after_text=json.dumps(after_lines, ensure_ascii=False),
-                note=f"员工更新，补录{len(paths)}张照片",
+                note=f"员工更新，补录{len(paths)}张照片，删除照片[{deleted_photo_details}]",
             )
         )
         session.commit()
         recompute_for_report(session, report.id)
-        log_operation(session, user.id, "shipment_worker_update", str(report_id), f"更新发货记录，补录{len(paths)}张照片")
+        for path in deleted_photo_paths:
+            delete_local_photo_if_unreferenced(session, path)
+        log_operation(
+            session,
+            user.id,
+            "shipment_worker_update",
+            str(report_id),
+            f"更新发货记录，补录{len(paths)}张照片，删除照片[{deleted_photo_details}]",
+        )
         return RedirectResponse("/mobile/my-reports", status_code=303)
 
     return app

@@ -2411,9 +2411,9 @@ def test_worker_update_report_rejects_bad_photo_without_saving_changes(db_sessio
     app.dependency_overrides.clear()
 
 
-def test_mobile_my_reports_shows_update_form_without_photo_delete(db_session):
+def test_mobile_my_reports_shows_photo_delete_controls(db_session):
     from app.db import get_session
-    from app.models import ShipmentLine, ShipmentReport, User
+    from app.models import ShipmentLine, ShipmentPhoto, ShipmentReport, User
 
     worker = User(username="worker_update_form", display_name="小杰", password_hash="x", role="worker", is_active=True)
     db_session.add(worker)
@@ -2431,6 +2431,8 @@ def test_mobile_my_reports_shows_update_form_without_photo_delete(db_session):
     db_session.add(report)
     db_session.flush()
     db_session.add(ShipmentLine(report_id=report.id, size="S", quantity=50))
+    photo = ShipmentPhoto(report_id=report.id, file_path="/uploads/package.png", original_name="package.png")
+    db_session.add(photo)
     db_session.commit()
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db_session
@@ -2444,10 +2446,192 @@ def test_mobile_my_reports_shows_update_form_without_photo_delete(db_session):
     assert 'name="line_ids"' in page.text
     assert 'name="quantities"' in page.text
     assert 'name="photos"' in page.text
+    assert 'name="delete_photo_ids"' in page.text
+    assert f'value="{photo.id}"' in page.text
     assert 'name="waybill_no"' not in page.text
     assert "提交更新给老板审核" in page.text
-    assert "删除照片" not in page.text
-    assert "remove_photo" not in page.text
+    app.dependency_overrides.clear()
+
+
+def test_worker_can_delete_own_report_photo_and_clean_unreferenced_file(db_session, tmp_path, monkeypatch):
+    from app.db import get_session
+    from app.models import AuditLog, OperationLog, ShipmentLine, ShipmentPhoto, ShipmentReport, User
+    from app.services import photos as photo_service
+
+    upload_dir = tmp_path / "uploads"
+    thumbnail_dir = tmp_path / "thumbs"
+    monkeypatch.setattr(photo_service, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(photo_service, "THUMBNAIL_DIR", thumbnail_dir)
+    photo_path = upload_dir / "sourcexingfa" / "wrong.png"
+    photo_path.parent.mkdir(parents=True)
+    photo_path.write_bytes(PNG_BYTES)
+    thumbnail_path = thumbnail_dir / "wrong_thumb.jpg"
+    thumbnail_path.parent.mkdir(parents=True)
+    thumbnail_path.write_bytes(b"thumbnail")
+
+    worker = User(username="worker_delete_photo", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+        review_reason="",
+    )
+    db_session.add(report)
+    db_session.flush()
+    line = ShipmentLine(report_id=report.id, size="S", quantity=50)
+    photo = ShipmentPhoto(report_id=report.id, file_path=str(photo_path), original_name="wrong.png")
+    db_session.add_all([line, photo])
+    db_session.commit()
+
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(line.id)],
+            "sizes": ["S"],
+            "quantities": ["50"],
+            "note": "原备注",
+            "delete_photo_ids": [str(photo.id)],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert db_session.query(ShipmentPhoto).filter_by(id=photo.id).count() == 0
+    assert not photo_path.exists()
+    assert not thumbnail_path.exists()
+    audit_note = db_session.query(AuditLog).filter_by(report_id=report.id, action="worker_update").one().note
+    operation_detail = db_session.query(OperationLog).filter_by(action="shipment_worker_update", target=str(report.id)).one().detail
+    assert f"删除照片[{photo.id}:wrong.png]" in audit_note
+    assert f"删除照片[{photo.id}:wrong.png]" in operation_detail
+    app.dependency_overrides.clear()
+
+
+def test_worker_photo_delete_preserves_file_still_used_by_packing_draft(db_session, tmp_path, monkeypatch):
+    from app.db import get_session
+    from app.models import PackingDraft, PackingDraftPhoto, ShipmentLine, ShipmentPhoto, ShipmentReport, User
+    from app.services import photos as photo_service
+
+    upload_dir = tmp_path / "uploads"
+    thumbnail_dir = tmp_path / "thumbs"
+    monkeypatch.setattr(photo_service, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(photo_service, "THUMBNAIL_DIR", thumbnail_dir)
+    photo_path = upload_dir / "sourcexingfa" / "shared.png"
+    photo_path.parent.mkdir(parents=True)
+    photo_path.write_bytes(PNG_BYTES)
+    thumbnail_path = thumbnail_dir / "shared_thumb.jpg"
+    thumbnail_path.parent.mkdir(parents=True)
+    thumbnail_path.write_bytes(b"thumbnail")
+
+    worker = User(username="worker_delete_shared_photo", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    draft = PackingDraft(
+        user_id=worker.id,
+        pack_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+    )
+    report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+    )
+    db_session.add_all([draft, report])
+    db_session.flush()
+    db_session.add_all([
+        PackingDraftPhoto(draft_id=draft.id, file_path=str(photo_path), original_name="shared.png"),
+        ShipmentLine(report_id=report.id, size="S", quantity=50),
+    ])
+    photo = ShipmentPhoto(report_id=report.id, draft_id=draft.id, file_path=str(photo_path), original_name="shared.png")
+    db_session.add(photo)
+    db_session.commit()
+
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+    line = db_session.query(ShipmentLine).filter_by(report_id=report.id).one()
+    response = client.post(
+        f"/mobile/my-reports/{report.id}/update",
+        data={
+            "line_ids": [str(line.id)],
+            "sizes": ["S"],
+            "quantities": ["50"],
+            "note": "",
+            "delete_photo_ids": [str(photo.id)],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert db_session.query(ShipmentPhoto).filter_by(id=photo.id).count() == 0
+    assert db_session.query(PackingDraftPhoto).filter_by(draft_id=draft.id).count() == 1
+    assert photo_path.exists()
+    assert thumbnail_path.exists()
+    app.dependency_overrides.clear()
+
+
+def test_worker_cannot_delete_photo_from_another_report(db_session):
+    from app.db import get_session
+    from app.models import ShipmentLine, ShipmentPhoto, ShipmentReport, User
+
+    worker = User(username="worker_delete_foreign_photo", display_name="小杰", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.flush()
+    own_report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-17",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+    )
+    other_report = ShipmentReport(
+        user_id=worker.id,
+        ship_date="2026-07-18",
+        company_name="源兴发",
+        product_name="小红帽",
+        style_name="小红帽男",
+        status="auto_approved",
+    )
+    db_session.add_all([own_report, other_report])
+    db_session.flush()
+    line = ShipmentLine(report_id=own_report.id, size="S", quantity=50)
+    foreign_photo = ShipmentPhoto(report_id=other_report.id, file_path="/uploads/other.png", original_name="other.png")
+    db_session.add_all([line, foreign_photo])
+    db_session.commit()
+
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+    response = client.post(
+        f"/mobile/my-reports/{own_report.id}/update",
+        data={
+            "line_ids": [str(line.id)],
+            "sizes": ["S"],
+            "quantities": ["50"],
+            "note": "",
+            "delete_photo_ids": [str(foreign_photo.id)],
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 404
+    assert db_session.query(ShipmentPhoto).filter_by(id=foreign_photo.id).count() == 1
     app.dependency_overrides.clear()
 
 

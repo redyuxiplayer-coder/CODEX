@@ -98,6 +98,9 @@ button.secondary:hover { background: #55616f; }
 .report-photos a { display: grid; gap: 5px; color: #2563eb; font-size: 12px; text-align: center; }
 .report-photos img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8fafc; }
 .report-photos span { overflow-wrap: anywhere; }
+.report-photo-item { min-width: 0; }
+.photo-delete-choice { display: flex; align-items: center; justify-content: center; gap: 5px; color: #b42318; font-size: 12px; }
+.photo-delete-choice input[type="checkbox"] { width: 18px; min-height: 18px; margin: 0; padding: 0; accent-color: #dc2626; }
 .compact-photos { grid-template-columns: repeat(auto-fill, minmax(58px, 64px)); min-width: 140px; margin-top: 0; justify-content: center; }
 .lightbox { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(10, 14, 20, 0.92); align-items: center; justify-content: center; }
 .lightbox.open { display: flex; }
