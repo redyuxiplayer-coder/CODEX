@@ -456,3 +456,43 @@ class WaybillRecord(Base):
 
     creator: Mapped[User | None] = relationship()
     reports: Mapped[list["ShipmentReport"]] = relationship(back_populates="waybill")
+
+class StockItem(Base):
+    """本地库存：按 款 + 颜色 + 尺码 记现有件数。"""
+
+    __tablename__ = "stock_items"
+    __table_args__ = (
+        UniqueConstraint("spu_id", "color_name", "size", name="uq_stock_items_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    spu_id: Mapped[int] = mapped_column(ForeignKey("spus.id"), index=True)
+    product_name: Mapped[str] = mapped_column(String(160), index=True)
+    style_name: Mapped[str] = mapped_column(String(160), index=True)
+    color_name: Mapped[str] = mapped_column(String(120), default="")
+    color_code: Mapped[str] = mapped_column(String(40), default="")
+    size: Mapped[str] = mapped_column(String(80), default="", index=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+    spu: Mapped[Spu] = relationship()
+    updater: Mapped[User | None] = relationship()
+
+
+class StockMovement(Base):
+    """库存变动流水：盘点、入库、出库各一条。"""
+
+    __tablename__ = "stock_movements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("stock_items.id"), index=True)
+    movement_type: Mapped[str] = mapped_column(String(20), index=True)
+    quantity_delta: Mapped[int] = mapped_column(Integer)
+    quantity_after: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+    item: Mapped[StockItem] = relationship()
+    creator: Mapped[User | None] = relationship()

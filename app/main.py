@@ -37,6 +37,16 @@ from app.models import (
     WorkInfoProposal,
 )
 from app.services.adjustments import create_order_adjustment, create_order_line_close, list_adjustments, list_closes
+from app.services.stock import (
+    add_stock_in,
+    ensure_item,
+    get_item,
+    get_spu,
+    list_movements,
+    list_spus,
+    list_stock,
+    set_stock_count,
+)
 from app.services.aliases import canonical_item, create_product_alias, list_product_aliases, update_product_alias
 from app.services.exports import (
     export_company_workbook,
@@ -811,6 +821,95 @@ def create_app() -> FastAPI:
         upsert_sku_mapping(session, company_name, product_name, style_name, size, sku, barcode)
         log_operation(session, admin.id, "sku_update", str(mapping_id), f"{product_name}/{style_name} {size} => {sku}")
         return RedirectResponse("/admin/skus?message=SKU已保存", status_code=303)
+
+    @app.get("/admin/stock")
+    def admin_stock(
+        request: Request,
+        q: str = "",
+        message: str = "",
+        error: str = "",
+        session: Session = Depends(get_session),
+    ):
+        admin = current_user(request, session)
+        if not admin:
+            return RedirectResponse("/login", status_code=303)
+        if admin.role != "admin":
+            return RedirectResponse("/mobile/report", status_code=303)
+        return templates.TemplateResponse(
+            "admin/stock.html",
+            {
+                "request": request,
+                "user": admin,
+                "items": list_stock(session, q),
+                "spus": list_spus(session),
+                "movements": list_movements(session, limit=30),
+                "q": q.strip(),
+                "message": message,
+                "error": error,
+            },
+        )
+
+    @app.post("/admin/stock/count")
+    def admin_stock_count(
+        request: Request,
+        item_id: int = Form(...),
+        quantity: int = Form(...),
+        reason: str = Form(""),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        item = get_item(session, item_id)
+        try:
+            set_stock_count(session, item, quantity, reason, admin.id)
+        except ValueError as exc:
+            return RedirectResponse("/admin/stock?" + urlencode({"error": str(exc)}), status_code=303)
+        log_operation(
+            session, admin.id, "stock_count", str(item_id),
+            f"{item.style_name} {item.color_name} {item.size} => {quantity}",
+        )
+        return RedirectResponse("/admin/stock?message=盘点已保存", status_code=303)
+
+    @app.post("/admin/stock/in")
+    def admin_stock_in(
+        request: Request,
+        item_id: int = Form(...),
+        quantity: int = Form(...),
+        reason: str = Form(""),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        item = get_item(session, item_id)
+        try:
+            add_stock_in(session, item, quantity, reason, admin.id)
+        except ValueError as exc:
+            return RedirectResponse("/admin/stock?" + urlencode({"error": str(exc)}), status_code=303)
+        log_operation(
+            session, admin.id, "stock_in", str(item_id),
+            f"{item.style_name} {item.color_name} {item.size} +{quantity}",
+        )
+        return RedirectResponse("/admin/stock?message=入库已记录", status_code=303)
+
+    @app.post("/admin/stock/new")
+    def admin_stock_new(
+        request: Request,
+        spu_id: int = Form(...),
+        color_name: str = Form(""),
+        color_code: str = Form(""),
+        size: str = Form(""),
+        session: Session = Depends(get_session),
+    ):
+        admin = require_admin(request, session)
+        try:
+            spu = get_spu(session, spu_id)
+            item = ensure_item(session, spu, color_name, color_code, size)
+            session.commit()
+        except ValueError as exc:
+            return RedirectResponse("/admin/stock?" + urlencode({"error": str(exc)}), status_code=303)
+        log_operation(
+            session, admin.id, "stock_item_create", str(item.id),
+            f"{spu.code} {color_name} {size}",
+        )
+        return RedirectResponse("/admin/stock?message=已新增库存行", status_code=303)
 
     @app.post("/admin/skus/import")
     async def admin_sku_import(
