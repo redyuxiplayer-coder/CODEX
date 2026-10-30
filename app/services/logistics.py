@@ -281,12 +281,15 @@ def list_waybill_records(
     session: Session,
     company_name: str = "",
     ship_date: str = "",
+    waybill_no: str = "",
 ) -> list[WaybillRecord]:
     query = session.query(WaybillRecord)
     if company_name.strip():
         query = query.filter(WaybillRecord.company_name == company_name.strip())
     if ship_date.strip():
         query = query.filter(WaybillRecord.ship_date == ship_date.strip())
+    if waybill_no.strip():
+        query = query.filter(WaybillRecord.waybill_no.contains(waybill_no.strip(), autoescape=True))
     return query.order_by(WaybillRecord.ship_date.desc(), WaybillRecord.id.desc()).all()
 
 

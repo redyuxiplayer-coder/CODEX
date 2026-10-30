@@ -1505,13 +1505,14 @@ def api_logistics_list(
     request: Request,
     company: str = "",
     ship_date: str = "",
+    waybill_no: str = "",
     session: Session = Depends(get_session),
 ):
     require_admin(request, session)
     return {
         "records": [
             _waybill_dict(record)
-            for record in list_waybill_records(session, company, ship_date)
+            for record in list_waybill_records(session, company, ship_date, waybill_no)
         ]
     }
 

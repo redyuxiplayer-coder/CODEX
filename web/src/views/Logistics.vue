@@ -21,6 +21,7 @@ const records = ref([]);
 const loading = ref(false);
 const filterCompany = ref("");
 const filterDate = ref("");
+const filterWaybillNo = ref("");
 const unlinkedMode = ref(false);
 const unlinked = ref([]);
 const loadingUnlinked = ref(false);
@@ -47,7 +48,11 @@ const selectedCandidates = ref([]);
 async function load() {
   loading.value = true;
   try {
-    records.value = (await fetchLogistics({ company: filterCompany.value, ship_date: filterDate.value })).records;
+    records.value = (await fetchLogistics({
+      company: filterCompany.value,
+      ship_date: filterDate.value,
+      waybill_no: filterWaybillNo.value,
+    })).records;
   } finally {
     loading.value = false;
   }
@@ -235,6 +240,15 @@ function reportQty(report) {
       <div class="filter-bar">
         <el-input v-model="filterCompany" placeholder="公司筛选" clearable style="width:180px" @keyup.enter="load" />
         <el-date-picker v-model="filterDate" type="date" value-format="YYYY-MM-DD" placeholder="日期筛选" style="width:160px" @change="load" />
+        <el-input
+          v-if="!unlinkedMode"
+          v-model="filterWaybillNo"
+          placeholder="快递单号搜索"
+          clearable
+          style="width:200px"
+          @keyup.enter="load"
+          @clear="load"
+        />
         <el-button type="primary" :loading="loading" @click="load">查询</el-button>
         <el-button :type="unlinkedMode ? 'warning' : 'default'" plain @click="toggleUnlinked">只看未挂靠发货</el-button>
         <el-button type="primary" plain @click="openCreate">新增快递单</el-button>
