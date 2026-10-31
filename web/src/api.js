@@ -80,6 +80,22 @@ export function updateSpu(spuId, data) {
   return postJson(`/api/v1/spus/${spuId}/update`, data);
 }
 
+export function fetchStock(q = "") {
+  return request(`/api/v1/stock${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+
+export function createStockItem(data) {
+  return postJson("/api/v1/stock/items", data);
+}
+
+export function setStockCount(itemId, quantity, reason) {
+  return postJson(`/api/v1/stock/items/${itemId}/count`, { quantity, reason });
+}
+
+export function addStockIn(itemId, quantity, reason) {
+  return postJson(`/api/v1/stock/items/${itemId}/in`, { quantity, reason });
+}
+
 export function fetchSalesOrders(params = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {

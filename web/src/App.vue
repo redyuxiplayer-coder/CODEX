@@ -38,7 +38,7 @@ async function doLogout() {
         <router-link to="/orders/new">新增订单</router-link>
         <router-link to="/sales-orders">正式订单</router-link>
         <router-link to="/orders">订单余额</router-link>
-        <a href="/admin/stock">本地库存</a>
+        <router-link to="/stock">本地库存</router-link>
         <router-link to="/companies">公司代码</router-link>
         <router-link to="/spus">内部 SPU</router-link>
         <router-link to="/review">待审核</router-link>

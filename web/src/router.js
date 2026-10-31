@@ -18,12 +18,14 @@ import Companies from "./views/Companies.vue";
 import Spus from "./views/Spus.vue";
 import SalesOrders from "./views/SalesOrders.vue";
 import SalesOrderDetail from "./views/SalesOrderDetail.vue";
+import Stock from "./views/Stock.vue";
 
 const routes = [
   { path: "/", redirect: "/dashboard" },
   { path: "/login", component: Login },
   { path: "/dashboard", component: Dashboard },
   { path: "/orders", component: Orders },
+  { path: "/stock", component: Stock },
   { path: "/order-lines/:id", component: OrderLine, props: true },
   { path: "/orders/new", component: NewOrder },
   { path: "/companies", component: Companies },

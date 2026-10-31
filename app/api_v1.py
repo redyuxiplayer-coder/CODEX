@@ -20,6 +20,8 @@ from app.models import (
     ShipmentLine,
     ShipmentReport,
     Spu,
+    StockItem,
+    StockMovement,
     User,
     WaybillRecord,
 )
@@ -44,7 +46,7 @@ from app.services.logistics import (
     unlink_report_from_waybill,
     update_waybill_record,
 )
-from app.services.operation_logs import recent_operation_logs
+from app.services.operation_logs import log_operation, recent_operation_logs
 from app.services.order_archives import (
     archive_sales_order,
     archive_state,
@@ -70,6 +72,16 @@ from app.services.sales_orders import (
     update_sales_order_customer_no,
 )
 from app.services.spus import create_spu, normalize_code
+from app.services.stock import (
+    add_stock_in,
+    ensure_item,
+    get_item,
+    get_spu,
+    list_movements,
+    list_spus,
+    list_stock,
+    set_stock_count,
+)
 from app.services.photos import save_uploads
 from app.services.returns import (
     create_return_rework,
@@ -148,6 +160,18 @@ class ShipDatePayload(BaseModel):
     ship_date: str = ""
 
 
+class StockItemPayload(BaseModel):
+    spu_id: int
+    color_name: str = ""
+    color_code: str = ""
+    size: str = ""
+
+
+class StockQuantityPayload(BaseModel):
+    quantity: int
+    reason: str = ""
+
+
 def _user_dict(user: User) -> dict:
     return {
         "id": user.id,
@@ -165,6 +189,35 @@ def _spu_dict(spu: Spu) -> dict:
         "style_name": spu.style_name,
         "note": spu.note or "",
         "is_active": bool(spu.is_active),
+    }
+
+
+def _stock_item_dict(item: StockItem) -> dict:
+    return {
+        "id": item.id,
+        "spu_id": item.spu_id,
+        "product_name": item.product_name,
+        "style_name": item.style_name,
+        "color_name": item.color_name or "",
+        "color_code": item.color_code or "",
+        "size": item.size or "",
+        "quantity": item.quantity,
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
+
+
+def _stock_movement_dict(movement: StockMovement) -> dict:
+    item = movement.item
+    label_parts = [item.product_name, item.style_name, item.color_name or "—", item.size or "—"]
+    return {
+        "id": movement.id,
+        "item_id": movement.item_id,
+        "item_label": " / ".join(label_parts),
+        "movement_type": movement.movement_type,
+        "quantity_delta": movement.quantity_delta,
+        "quantity_after": movement.quantity_after,
+        "reason": movement.reason or "",
+        "created_at": movement.created_at.isoformat() if movement.created_at else None,
     }
 
 
@@ -620,6 +673,85 @@ def api_create_spu(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock")
+def api_stock(request: Request, q: str = "", session: Session = Depends(get_session)):
+    require_admin(request, session)
+    return {
+        "items": [_stock_item_dict(item) for item in list_stock(session, q)],
+        "spus": [_spu_dict(spu) for spu in list_spus(session)],
+        "movements": [_stock_movement_dict(row) for row in list_movements(session, limit=30)],
+    }
+
+
+@router.post("/stock/items")
+def api_create_stock_item(
+    request: Request,
+    payload: StockItemPayload,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    try:
+        spu = get_spu(session, payload.spu_id)
+        item = ensure_item(session, spu, payload.color_name, payload.color_code, payload.size)
+        session.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    log_operation(
+        session,
+        admin.id,
+        "stock_item_create",
+        str(item.id),
+        f"{spu.code} {payload.color_name} {payload.size}",
+    )
+    return {"item": _stock_item_dict(item)}
+
+
+@router.post("/stock/items/{item_id}/count")
+def api_set_stock_count(
+    request: Request,
+    item_id: int,
+    payload: StockQuantityPayload,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    try:
+        item = get_item(session, item_id)
+        set_stock_count(session, item, payload.quantity, payload.reason, admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    log_operation(
+        session,
+        admin.id,
+        "stock_count",
+        str(item_id),
+        f"{item.style_name} {item.color_name} {item.size} => {payload.quantity}",
+    )
+    return {"item": _stock_item_dict(item)}
+
+
+@router.post("/stock/items/{item_id}/in")
+def api_add_stock_in(
+    request: Request,
+    item_id: int,
+    payload: StockQuantityPayload,
+    session: Session = Depends(get_session),
+):
+    admin = require_admin(request, session)
+    try:
+        item = get_item(session, item_id)
+        add_stock_in(session, item, payload.quantity, payload.reason, admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    log_operation(
+        session,
+        admin.id,
+        "stock_in",
+        str(item_id),
+        f"{item.style_name} {item.color_name} {item.size} +{payload.quantity}",
+    )
+    return {"item": _stock_item_dict(item)}
 
 
 @router.post("/spus/{spu_id}/update")
