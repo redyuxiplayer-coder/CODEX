@@ -4,17 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>发货上报</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260804-7">
+  <link rel="stylesheet" href="/static/app.css?v=20261031-1">
 </head>
 <body class="mobile">
 <main class="phone-card wide-phone">
-  <div class="mobile-nav">
-    <b>{{ user.display_name }}</b>
-    <a href="/mobile">主页</a>
-    <a href="/mobile/orders">补货查看</a>
-    <a href="/mobile/my-reports">我的上报</a>
-    <a href="/logout">退出</a>
-  </div>
+  {% include "mobile/_nav.html" %}
 
   <section class="mobile-hero">
     <div>

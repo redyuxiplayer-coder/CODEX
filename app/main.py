@@ -1703,7 +1703,8 @@ def create_app() -> FastAPI:
                 "today": today,
                 "previous_day": previous_day,
                 "goals": goals,
-                "previous_reports": previous_reports,
+                "previous_report_count": len(previous_reports),
+                "previous_total": sum(line.quantity for report in previous_reports for line in report.lines),
             },
         )
 

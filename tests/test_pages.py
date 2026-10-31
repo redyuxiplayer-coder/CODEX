@@ -2669,7 +2669,7 @@ def test_mobile_report_draft_shows_photo_thumbnails_without_names(db_session, tm
     app.dependency_overrides.clear()
 
 
-def test_mobile_home_shows_previous_day_shipments_not_replenishment(db_session):
+def test_mobile_home_shows_previous_day_summary_link_not_report_details(db_session):
     from datetime import date, timedelta
     from app.db import get_session
     from app.models import ShipmentLine, ShipmentReport, User
@@ -2699,8 +2699,61 @@ def test_mobile_home_shows_previous_day_shipments_not_replenishment(db_session):
 
     assert page.status_code == 200
     assert "前一日发货" in page.text
-    assert "福建" in page.text
-    assert "小偷女款" in page.text
-    assert "M <b>120</b>" in page.text
+    assert "1 单，共 120 件" in page.text
+    assert f'/mobile/daily-stats?ship_date={(date.today() - timedelta(days=1)).isoformat()}' in page.text
+    assert "福建" not in page.text
+    assert "小偷女款" not in page.text
     assert "优先补货参考" not in page.text
     app.dependency_overrides.clear()
+
+
+def test_logged_in_mobile_pages_share_complete_navigation(db_session):
+    from app.db import get_session
+    from app.models import User
+
+    worker = User(username="mobile_nav_worker", display_name="仓库", password_hash="x", role="worker", is_active=True)
+    db_session.add(worker)
+    db_session.commit()
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db_session
+    client = TestClient(app)
+    client.cookies.set("zy_user_id", str(worker.id))
+    pages = [
+        "/mobile",
+        "/mobile/report",
+        "/mobile/orders",
+        "/mobile/my-reports",
+        "/mobile/daily-stats",
+        "/mobile/work-info?company=福建&product=小偷&style=小偷女款",
+    ]
+    links = [
+        ('href="/mobile"', "主页"),
+        ('href="/mobile/report"', "发货上报"),
+        ('href="/mobile/orders"', "补货查看"),
+        ('href="/mobile/my-reports"', "我的上报"),
+        ('href="/mobile/daily-stats"', "发货统计"),
+    ]
+
+    for path in pages:
+        page = client.get(path)
+        assert page.status_code == 200, path
+        positions = [page.text.index(f'{href}>{label}</a>') for href, label in links]
+        assert positions == sorted(positions), path
+        assert '<span class="mobile-user"><b>仓库</b><a href="/logout">退出</a></span>' in page.text, path
+        assert "补货查询" not in page.text, path
+    app.dependency_overrides.clear()
+
+
+def test_mobile_today_get_redirect_and_post_routes_remain_compatible():
+    app = create_app()
+    client = TestClient(app)
+
+    response = client.get("/mobile/today", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/mobile/report"
+    route_signatures = {(route.path, method) for route in app.routes for method in getattr(route, "methods", set())}
+    assert ("/mobile/today/new", "POST") in route_signatures
+    assert ("/mobile/today/{report_id}/update", "POST") in route_signatures
+    assert ("/mobile/today/{report_id}/delete", "POST") in route_signatures
+    assert ("/mobile/today/{report_id}/submit", "POST") in route_signatures

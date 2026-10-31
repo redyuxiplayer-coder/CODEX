@@ -4,16 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>包装/贴标信息</title>
-  <link rel="stylesheet" href="/static/app.css?v=20260804-7">
+  <link rel="stylesheet" href="/static/app.css?v=20261031-1">
 </head>
 <body class="mobile">
 <main class="phone-card wide-phone">
-  <div class="mobile-nav">
-    <b>{{ user.display_name }}</b>
-    <a href="/mobile/orders">补货查询</a>
-    <a href="/mobile/report">发货上报</a>
-    <a href="/logout">退出</a>
-  </div>
+  {% include "mobile/_nav.html" %}
   <h1>包装/贴标信息</h1>
   <div class="item-sub">{{ company }} / {{ product }} / {{ style }}</div>
   {% if message %}<p class="success">{{ message }}</p>{% endif %}

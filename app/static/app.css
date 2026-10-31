@@ -51,6 +51,7 @@ button.secondary:hover { background: #55616f; }
 .mobile input, .mobile select, .mobile textarea, .mobile button { min-height: 46px; font-size: 16px; }
 .mobile-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
 .mobile-nav a { white-space: nowrap; }
+.mobile-user { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .mobile-hero { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #eceff3; border-radius: 10px; padding: 14px; background: #f8fafc; }
 .mobile-hero h1 { margin: 0; }
 .mobile-hero p { margin: 4px 0 0; color: #9ca3af; }
